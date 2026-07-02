@@ -12,6 +12,7 @@ export const mockNovels: Novel[] = [
       '인물이름은 반드시 한글 훈독으로 해석할것.\n主人公A -> 철수\n단위는 SI 단위계를 사용할것.\n1리 = 500m\n1근 = 500g',
     systemPrompt: defaultSystemPrompt,
     lastReadChapterIndex: 0,
+    order: 0,
     chapters: [
       {
         id: 'novel-1-ch1',
@@ -41,6 +42,7 @@ export const mockNovels: Novel[] = [
     translationNote: '무협 말투를 유지할것. 존댓말/반말 구분은 인물 서열에 따를것.',
     systemPrompt: defaultSystemPrompt,
     lastReadChapterIndex: 0,
+    order: 1,
     chapters: [
       {
         id: 'novel-2-ch1',

@@ -2,14 +2,22 @@ import type { CSSProperties } from 'react'
 import type { Chapter } from '../../types/novel'
 import type { ThemeSettings } from '../../types/settings'
 import OriginalParagraph from './OriginalParagraph'
+import Spinner from '../ui/Spinner'
 
 export interface ViewerContentProps {
   chapter: Chapter
   theme: ThemeSettings
+  displayedTranslatedText?: string
+  isTranslating?: boolean
 }
 
-export default function ViewerContent({ chapter, theme }: ViewerContentProps) {
-  const translatedParagraphs = chapter.translatedText.split('\n').filter(Boolean)
+export default function ViewerContent({
+  chapter,
+  theme,
+  displayedTranslatedText,
+  isTranslating,
+}: ViewerContentProps) {
+  const translatedParagraphs = (displayedTranslatedText ?? chapter.translatedText).split('\n').filter(Boolean)
   const originalParagraphs = chapter.originalText.split('\n').filter(Boolean)
 
   const textStyle: CSSProperties = {
@@ -30,6 +38,7 @@ export default function ViewerContent({ chapter, theme }: ViewerContentProps) {
           fontSize={theme.fontSize}
         />
       ))}
+      {isTranslating && <Spinner />}
     </div>
   )
 }

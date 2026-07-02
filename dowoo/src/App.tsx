@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import AppShell from './components/layout/AppShell'
 import TopBar from './components/layout/TopBar'
@@ -6,13 +6,25 @@ import ChapterNavBar from './components/layout/ChapterNavBar'
 import NovelViewer from './components/viewer/NovelViewer'
 import SettingsDrawer from './components/settings/SettingsDrawer'
 import LibraryDrawer from './components/library/LibraryDrawer'
+import ErrorModal from './components/ui/ErrorModal'
 import { db } from './db/db'
-import { seedNovelsIfEmpty, patchNovel } from './db/novelsRepo'
+import {
+  seedNovelsIfEmpty,
+  patchNovel,
+  patchChapterText,
+  upsertNovel,
+  deleteNovel,
+  reorderNovels,
+} from './db/novelsRepo'
 import { getApiSettings, saveApiSettings, saveThemePreset, deleteThemePreset } from './db/settingsRepo'
 import { loadTheme, saveTheme, loadLastSession, saveLastSession } from './storage/localSettings'
-import { defaultApiSettings, defaultTheme } from './data/defaults'
+import { defaultApiSettings, defaultTheme, defaultSystemPrompt } from './data/defaults'
 import { useHideOnScroll } from './hooks/useHideOnScroll'
+import { translateStream, TranslationAbortedError } from './ai/geminiClient'
 import type { ThemeSettings } from './types/settings'
+import type { Novel } from './types/novel'
+
+type TranslationError = { type: 'crawling' | 'gemini'; message: string }
 
 function App() {
   useEffect(() => {
@@ -27,7 +39,7 @@ function App() {
   const apiSettingsQuery = useLiveQuery(() => getApiSettings(), [])
   const customThemePresetsQuery = useLiveQuery(() => db.themePresets.toArray(), [])
 
-  const novels = novelsQuery ?? []
+  const novels = (novelsQuery ?? []).slice().sort((a, b) => a.order - b.order)
   const apiSettings = apiSettingsQuery ?? defaultApiSettings
   const customThemePresets = customThemePresetsQuery ?? []
 
@@ -40,7 +52,13 @@ function App() {
   const [isLibraryOpen, setIsLibraryOpen] = useState(false)
 
   const [theme, setTheme] = useState<ThemeSettings>(() => loadTheme() ?? defaultTheme)
-  const [translationProgress] = useState(0)
+
+  const [translationStatus, setTranslationStatus] = useState<'idle' | 'translating'>('idle')
+  const [translationError, setTranslationError] = useState<TranslationError | null>(null)
+  const [streamingChapterId, setStreamingChapterId] = useState<string | null>(null)
+  const [streamingText, setStreamingText] = useState('')
+  const [streamingTotalChars, setStreamingTotalChars] = useState(0)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   const activeNovel = novels.find((n) => n.id === activeNovelId) ?? novels[0]
   const chapter = activeNovel?.chapters[currentChapterIndex]
@@ -68,9 +86,120 @@ function App() {
 
   const [topBarHidden, showTopBar] = useHideOnScroll(10, urlInput)
 
-  if (!activeNovel || !chapter) {
+  const handleCancelTranslation = () => {
+    abortControllerRef.current?.abort()
+  }
+
+  const handleSubmit = async () => {
+    const text = urlInput.trim()
+    if (!text || translationStatus === 'translating') return
+
+    setTranslationError(null)
+
+    // 이미 서재(IndexedDB)에 같은 URL/원문으로 저장된 소설이 있으면 새로 만들지 않고 그걸 바로 보여줌
+    const existingNovel = novels.find(
+      (n) =>
+        (n.sourceUrl && n.sourceUrl === text) ||
+        n.chapters.some((c) => c.sourceUrl === text || c.originalText === text)
+    )
+    if (existingNovel) {
+      const existingChapterIndex = existingNovel.chapters.findIndex(
+        (c) => c.sourceUrl === text || c.originalText === text
+      )
+      setActiveNovelId(existingNovel.id)
+      setCurrentChapterIndex(Math.max(0, existingChapterIndex))
+      return
+    }
+
+    const firstLine = text
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean)
+    const title = (firstLine ?? '제목 미상').slice(0, 60)
+
+    const newNovelId = crypto.randomUUID()
+    const newChapterId = crypto.randomUUID()
+
+    const nextOrder = novels.length > 0 ? Math.max(...novels.map((n) => n.order)) + 1 : 0
+
+    const newNovel: Novel = {
+      id: newNovelId,
+      title,
+      sourceUrl: '',
+      siteName: '직접 입력',
+      translationNote: '',
+      systemPrompt: defaultSystemPrompt,
+      lastReadChapterIndex: 0,
+      order: nextOrder,
+      chapters: [
+        {
+          id: newChapterId,
+          title,
+          sourceUrl: '',
+          originalText: text,
+          translatedText: '',
+        },
+      ],
+    }
+
+    await upsertNovel(newNovel)
+    setActiveNovelId(newNovelId)
+    setCurrentChapterIndex(0)
+
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
+    setTranslationStatus('translating')
+    setStreamingChapterId(newChapterId)
+    setStreamingText('')
+    setStreamingTotalChars(text.length)
+
+    let accumulatedText = ''
+
+    try {
+      await translateStream({
+        apiKeys: apiSettings.apiKeys,
+        model: apiSettings.model,
+        systemPrompt: newNovel.systemPrompt,
+        translationNote: newNovel.translationNote,
+        originalText: text,
+        signal: controller.signal,
+        onLine: (line) => {
+          accumulatedText = accumulatedText ? `${accumulatedText}\n${line}` : line
+          setStreamingText(accumulatedText)
+        },
+      })
+
+      await patchChapterText(newNovelId, newChapterId, accumulatedText)
+    } catch (error) {
+      // 취소되었거나 도중에 실패해도, 그때까지 번역된 내용은 그대로 저장해 둔다
+      if (accumulatedText) {
+        await patchChapterText(newNovelId, newChapterId, accumulatedText)
+      }
+
+      if (!(error instanceof TranslationAbortedError)) {
+        setTranslationError({
+          type: 'gemini',
+          message: error instanceof Error ? error.message : String(error),
+        })
+      }
+    } finally {
+      setTranslationStatus('idle')
+      abortControllerRef.current = null
+    }
+  }
+
+  if (novelsQuery === undefined) {
     return <div className="flex min-h-screen items-center justify-center text-gray-500">불러오는 중...</div>
   }
+
+  const displayedTranslatedText =
+    chapter && chapter.id === streamingChapterId && streamingText.length > 0 ? streamingText : undefined
+
+  const translationProgress =
+    translationStatus === 'translating' && streamingTotalChars > 0
+      ? Math.min(99, (streamingText.length / streamingTotalChars) * 100)
+      : 0
 
   return (
     <AppShell
@@ -78,21 +207,45 @@ function App() {
         <TopBar
           urlInput={urlInput}
           onUrlInputChange={setUrlInput}
-          onSubmit={() => {}}
+          onSubmit={() => void handleSubmit()}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenLibrary={() => setIsLibraryOpen(true)}
           hidden={topBarHidden}
           onShow={showTopBar}
+          isTranslating={translationStatus === 'translating'}
+          onCancelTranslation={handleCancelTranslation}
         />
       }
       topBarHidden={topBarHidden}
       mainStyle={{ backgroundColor: theme.bgColor, color: theme.fontColor }}
     >
-      <NovelViewer chapter={chapter} theme={theme} progress={translationProgress} />
+      {activeNovel && chapter ? (
+        <>
+          <NovelViewer
+            chapter={chapter}
+            theme={theme}
+            progress={translationProgress}
+            displayedTranslatedText={displayedTranslatedText}
+            isTranslating={translationStatus === 'translating' && chapter.id === streamingChapterId}
+          />
 
-      <ChapterNavBar
-        onPrevChapter={() => setCurrentChapterIndex((i) => Math.max(0, i - 1))}
-        onNextChapter={() => setCurrentChapterIndex((i) => Math.min(activeNovel.chapters.length - 1, i + 1))}
+          <ChapterNavBar
+            onPrevChapter={() => setCurrentChapterIndex((i) => Math.max(0, i - 1))}
+            onNextChapter={() =>
+              setCurrentChapterIndex((i) => Math.min(activeNovel.chapters.length - 1, i + 1))
+            }
+          />
+        </>
+      ) : (
+        <p className="py-20 text-center text-gray-400">
+          서재가 비어 있습니다. 상단바에 번역할 텍스트를 붙여넣고 "불러오기"를 눌러보세요.
+        </p>
+      )}
+
+      <ErrorModal
+        isOpen={translationError !== null}
+        message={translationError?.message ?? ''}
+        onClose={() => setTranslationError(null)}
       />
 
       <SettingsDrawer
@@ -119,6 +272,8 @@ function App() {
         onUpdateNovel={(novelId, title, coverUrl, systemPrompt, translationNote) =>
           void patchNovel(novelId, { title, coverUrl, systemPrompt, translationNote })
         }
+        onDeleteNovel={(novelId) => void deleteNovel(novelId)}
+        onReorderNovels={(orderedIds) => void reorderNovels(orderedIds)}
         onDownloadNovel={() => {}}
       />
     </AppShell>
