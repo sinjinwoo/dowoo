@@ -21,6 +21,7 @@ import { loadTheme, saveTheme, loadLastSession, saveLastSession } from './storag
 import { defaultApiSettings, defaultTheme, defaultSystemPrompt } from './data/defaults'
 import { useHideOnScroll } from './hooks/useHideOnScroll'
 import { translateStream, TranslationAbortedError } from './ai/geminiClient'
+import { crawlChapter, isSupportedUrl } from './crawl/registry'
 import type { ThemeSettings } from './types/settings'
 import type { Novel } from './types/novel'
 
@@ -91,31 +92,64 @@ function App() {
   }
 
   const handleSubmit = async () => {
-    const text = urlInput.trim()
-    if (!text || translationStatus === 'translating') return
+    const input = urlInput.trim()
+    if (!input || translationStatus === 'translating') return
 
     setTranslationError(null)
 
     // 이미 서재(IndexedDB)에 같은 URL/원문으로 저장된 소설이 있으면 새로 만들지 않고 그걸 바로 보여줌
     const existingNovel = novels.find(
       (n) =>
-        (n.sourceUrl && n.sourceUrl === text) ||
-        n.chapters.some((c) => c.sourceUrl === text || c.originalText === text)
+        (n.sourceUrl && n.sourceUrl === input) ||
+        n.chapters.some((c) => c.sourceUrl === input || c.originalText === input)
     )
     if (existingNovel) {
       const existingChapterIndex = existingNovel.chapters.findIndex(
-        (c) => c.sourceUrl === text || c.originalText === text
+        (c) => c.sourceUrl === input || c.originalText === input
       )
       setActiveNovelId(existingNovel.id)
       setCurrentChapterIndex(Math.max(0, existingChapterIndex))
       return
     }
 
-    const firstLine = text
-      .split('\n')
-      .map((line) => line.trim())
-      .find(Boolean)
-    const title = (firstLine ?? '제목 미상').slice(0, 60)
+    const isUrl = /^https?:\/\//i.test(input)
+
+    let originalText: string
+    let chapterTitle: string
+    let chapterSourceUrl = ''
+    let prevUrl: string | null = null
+    let nextUrl: string | null = null
+    let siteName = '직접 입력'
+
+    if (isUrl) {
+      if (!isSupportedUrl(input)) {
+        setTranslationError({ type: 'crawling', message: '지원하지 않는 사이트 주소입니다.' })
+        return
+      }
+
+      try {
+        const parsed = await crawlChapter(input)
+        originalText = parsed.content
+        chapterTitle = parsed.title || '제목 미상'
+        chapterSourceUrl = input
+        prevUrl = parsed.prevUrl
+        nextUrl = parsed.nextUrl
+        siteName = new URL(input).hostname
+      } catch (error) {
+        setTranslationError({
+          type: 'crawling',
+          message: error instanceof Error ? error.message : String(error),
+        })
+        return
+      }
+    } else {
+      originalText = input
+      const firstLine = input
+        .split('\n')
+        .map((line) => line.trim())
+        .find(Boolean)
+      chapterTitle = (firstLine ?? '제목 미상').slice(0, 60)
+    }
 
     const newNovelId = crypto.randomUUID()
     const newChapterId = crypto.randomUUID()
@@ -124,9 +158,9 @@ function App() {
 
     const newNovel: Novel = {
       id: newNovelId,
-      title,
-      sourceUrl: '',
-      siteName: '직접 입력',
+      title: chapterTitle,
+      sourceUrl: chapterSourceUrl,
+      siteName,
       translationNote: '',
       systemPrompt: defaultSystemPrompt,
       lastReadChapterIndex: 0,
@@ -134,10 +168,12 @@ function App() {
       chapters: [
         {
           id: newChapterId,
-          title,
-          sourceUrl: '',
-          originalText: text,
+          title: chapterTitle,
+          sourceUrl: chapterSourceUrl,
+          originalText,
           translatedText: '',
+          prevUrl,
+          nextUrl,
         },
       ],
     }
@@ -152,7 +188,7 @@ function App() {
     setTranslationStatus('translating')
     setStreamingChapterId(newChapterId)
     setStreamingText('')
-    setStreamingTotalChars(text.length)
+    setStreamingTotalChars(originalText.length)
 
     let accumulatedText = ''
 
@@ -162,7 +198,7 @@ function App() {
         model: apiSettings.model,
         systemPrompt: newNovel.systemPrompt,
         translationNote: newNovel.translationNote,
-        originalText: text,
+        originalText,
         signal: controller.signal,
         onLine: (line) => {
           accumulatedText = accumulatedText ? `${accumulatedText}\n${line}` : line
