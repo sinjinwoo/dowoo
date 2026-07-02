@@ -11,6 +11,43 @@ export interface ThemePresetButtonsProps {
   onDeleteCustomPreset: (name: string) => void
 }
 
+function PresetSwatch({
+  preset,
+  onClick,
+  onDelete,
+}: {
+  preset: ThemePreset
+  onClick: () => void
+  onDelete?: () => void
+}) {
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={preset.name}
+        className="flex h-12 w-16 items-center justify-center rounded-lg border border-black/10 text-lg font-medium shadow-sm transition-transform hover:scale-105 dark:border-white/10"
+        style={{ backgroundColor: preset.theme.bgColor, color: preset.theme.fontColor }}
+      >
+        가
+      </button>
+      <span className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
+        {preset.name}
+        {onDelete && (
+          <button
+            type="button"
+            aria-label={`${preset.name} 삭제`}
+            onClick={onDelete}
+            className="text-gray-400 hover:text-red-500"
+          >
+            ✕
+          </button>
+        )}
+      </span>
+    </div>
+  )
+}
+
 export default function ThemePresetButtons({
   theme,
   onChange,
@@ -23,30 +60,21 @@ export default function ThemePresetButtons({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-3">
         {themePresets.map((preset) => (
-          <Button key={preset.name} variant="secondary" size="sm" onClick={() => applyPreset(preset)}>
-            {preset.name}
-          </Button>
+          <PresetSwatch key={preset.name} preset={preset} onClick={() => applyPreset(preset)} />
         ))}
       </div>
 
       {customPresets.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-3">
           {customPresets.map((preset) => (
-            <span key={preset.name} className="inline-flex items-center gap-1">
-              <Button variant="secondary" size="sm" onClick={() => applyPreset(preset)}>
-                {preset.name}
-              </Button>
-              <button
-                type="button"
-                aria-label={`${preset.name} 삭제`}
-                onClick={() => onDeleteCustomPreset(preset.name)}
-                className="text-xs text-gray-400 hover:text-red-500"
-              >
-                ✕
-              </button>
-            </span>
+            <PresetSwatch
+              key={preset.name}
+              preset={preset}
+              onClick={() => applyPreset(preset)}
+              onDelete={() => onDeleteCustomPreset(preset.name)}
+            />
           ))}
         </div>
       )}

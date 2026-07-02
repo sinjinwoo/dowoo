@@ -20,6 +20,7 @@ export function useHideOnScroll(topThreshold = 10, resetKey?: unknown) {
   }, [topThreshold])
 
   const show = () => setHidden(false)
+  const toggle = () => setHidden((h) => !h)
 
-  return [hidden, show] as const
+  return [hidden, show, toggle] as const
 }

@@ -8,7 +8,6 @@ export interface TopBarProps {
   onOpenSettings: () => void
   onOpenLibrary: () => void
   hidden: boolean
-  onShow: () => void
 }
 
 export default function TopBar({
@@ -18,13 +17,11 @@ export default function TopBar({
   onOpenSettings,
   onOpenLibrary,
   hidden,
-  onShow,
 }: TopBarProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 
   return (
-    <>
-      <header
+    <header
         className={`fixed inset-x-0 top-0 z-40 border-b border-gray-200 bg-white shadow-sm transition-transform duration-300 dark:border-gray-800 dark:bg-gray-900 ${
           hidden ? '-translate-y-full' : 'translate-y-0'
         }`}
@@ -99,19 +96,6 @@ export default function TopBar({
             </button>
           </div>
         )}
-      </header>
-
-      {/* 상단바가 숨겨져 있을 때도 항상 탭할 수 있는 작은 손잡이 */}
-      {hidden && (
-        <button
-          type="button"
-          onClick={onShow}
-          aria-label="상단바 열기"
-          className="fixed inset-x-0 top-0 z-40 mx-auto flex w-16 justify-center rounded-b-md bg-gray-300/70 py-1 dark:bg-gray-700/70"
-        >
-          <span className="h-1 w-8 rounded-full bg-gray-500 dark:bg-gray-400" />
-        </button>
-      )}
-    </>
+    </header>
   )
 }

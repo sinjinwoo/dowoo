@@ -20,7 +20,10 @@ export default function OriginalParagraph({
       <p
         className="cursor-pointer whitespace-pre-wrap"
         style={{ textIndent: `${textIndent}em` }}
-        onClick={() => setIsOpen((v) => !v)}
+        onClick={(e) => {
+          e.stopPropagation()
+          setIsOpen((v) => !v)
+        }}
       >
         {translatedText}
       </p>

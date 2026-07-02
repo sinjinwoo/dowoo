@@ -1,7 +1,7 @@
 import type { ThemePreset, ThemeSettings } from '../../types/settings'
 import Slider from '../ui/Slider'
 import ColorSwatchPicker from '../ui/ColorSwatchPicker'
-import Select from '../ui/Select'
+import FontPicker from './FontPicker'
 import ThemePresetButtons from './ThemePresetButtons'
 import { fontOptions } from '../../data/fontOptions'
 
@@ -33,12 +33,7 @@ export default function ThemeSettingsPanel({
         onDeleteCustomPreset={onDeleteCustomPreset}
       />
 
-      <Select
-        label="폰트"
-        value={theme.fontFamily}
-        options={fontOptions}
-        onChange={(value) => set('fontFamily', value)}
-      />
+      <FontPicker value={theme.fontFamily} options={fontOptions} onChange={(value) => set('fontFamily', value)} />
 
       <ColorSwatchPicker label="글자 색상" value={theme.fontColor} onChange={(v) => set('fontColor', v)} />
       <ColorSwatchPicker label="배경 색상" value={theme.bgColor} onChange={(v) => set('bgColor', v)} />

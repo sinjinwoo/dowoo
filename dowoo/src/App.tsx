@@ -66,7 +66,7 @@ function App() {
     saveTheme(theme)
   }, [theme])
 
-  const [topBarHidden, showTopBar] = useHideOnScroll(10, urlInput)
+  const [topBarHidden, , toggleTopBar] = useHideOnScroll(10, urlInput)
 
   if (!activeNovel || !chapter) {
     return <div className="flex min-h-screen items-center justify-center text-gray-500">불러오는 중...</div>
@@ -82,11 +82,11 @@ function App() {
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenLibrary={() => setIsLibraryOpen(true)}
           hidden={topBarHidden}
-          onShow={showTopBar}
         />
       }
       topBarHidden={topBarHidden}
       mainStyle={{ backgroundColor: theme.bgColor, color: theme.fontColor }}
+      onMainClick={toggleTopBar}
     >
       <NovelViewer chapter={chapter} theme={theme} progress={translationProgress} />
 

@@ -26,7 +26,8 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
         onClick={onClose}
       />
       <div
-        className={`relative z-10 w-full rounded-xl bg-white p-5 shadow-xl dark:bg-gray-900 ${sizeClasses[size]}`}
+        className={`relative z-10 w-full rounded-xl bg-white p-5 text-gray-900 shadow-xl dark:bg-gray-900 dark:text-gray-100 ${sizeClasses[size]}`}
+        onClick={(e) => e.stopPropagation()}
       >
         {title && (
           <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h2>

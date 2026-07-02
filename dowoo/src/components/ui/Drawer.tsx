@@ -30,7 +30,8 @@ export default function Drawer({
         onClick={onClose}
       />
       <div
-        className={`absolute top-0 ${sideClasses} flex h-full ${widthClassName} max-w-full flex-col bg-white shadow-xl dark:bg-gray-900`}
+        className={`absolute top-0 ${sideClasses} flex h-full ${widthClassName} max-w-full flex-col bg-white text-gray-900 shadow-xl dark:bg-gray-900 dark:text-gray-100`}
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between bg-accent px-4 py-3 text-white">
           <h2 className="text-base font-semibold">{title}</h2>
