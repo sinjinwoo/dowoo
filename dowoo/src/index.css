@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Pretendard", system-ui, "Segoe UI", Roboto, sans-serif;
+  --color-accent: #aa3bff;
+  --color-accent-dark: #c084fc;
+}
+
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+}
