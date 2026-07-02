@@ -18,4 +18,5 @@ export interface Novel {
   lastReadScrollPos?: number
   translationNote: string
   systemPrompt: string
+  order: number
 }

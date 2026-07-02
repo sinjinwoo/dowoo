@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import type { ApiSettings } from '../../types/settings'
 import Select from '../ui/Select'
+import Button from '../ui/Button'
 
 export interface ApiSettingsPanelProps {
   apiSettings: ApiSettings
@@ -13,6 +15,15 @@ const modelOptions = [
 ]
 
 export default function ApiSettingsPanel({ apiSettings, onChange }: ApiSettingsPanelProps) {
+  const [draft, setDraft] = useState(apiSettings)
+  const [justSaved, setJustSaved] = useState(false)
+
+  const handleSave = () => {
+    onChange(draft)
+    setJustSaved(true)
+    setTimeout(() => setJustSaved(false), 1500)
+  }
+
   return (
     <div className="space-y-4">
       <label className="block">
@@ -21,19 +32,22 @@ export default function ApiSettingsPanel({ apiSettings, onChange }: ApiSettingsP
         </span>
         <textarea
           rows={4}
-          value={apiSettings.apiKeys.join('\n')}
-          onChange={(e) => onChange({ ...apiSettings, apiKeys: e.target.value.split('\n') })}
+          wrap="off"
+          value={draft.apiKeys.join('\n')}
+          onChange={(e) => setDraft({ ...draft, apiKeys: e.target.value.split('\n') })}
           placeholder="AIzaSy..."
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+          className="w-full overflow-x-auto whitespace-pre rounded-lg border border-gray-300 px-3 py-2 font-mono text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
         />
       </label>
 
       <Select
         label="번역 모델"
-        value={apiSettings.model}
+        value={draft.model}
         options={modelOptions}
-        onChange={(model) => onChange({ ...apiSettings, model })}
+        onChange={(model) => setDraft({ ...draft, model })}
       />
+
+      <Button onClick={handleSave}>{justSaved ? '저장됨 ✓' : '저장'}</Button>
     </div>
   )
 }

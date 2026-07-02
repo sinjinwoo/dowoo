@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import Button from '../ui/Button'
 
+const MAX_INPUT_LENGTH = 50000
+
 export interface TopBarProps {
   urlInput: string
   onUrlInputChange: (value: string) => void
@@ -9,6 +11,8 @@ export interface TopBarProps {
   onOpenLibrary: () => void
   hidden: boolean
   onShow: () => void
+  isTranslating: boolean
+  onCancelTranslation: () => void
 }
 
 export default function TopBar({
@@ -19,6 +23,8 @@ export default function TopBar({
   onOpenLibrary,
   hidden,
   onShow,
+  isTranslating,
+  onCancelTranslation,
 }: TopBarProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 
@@ -56,19 +62,36 @@ export default function TopBar({
             className="flex min-w-0 flex-1 gap-2"
             onSubmit={(e) => {
               e.preventDefault()
-              onSubmit()
+              if (isTranslating) {
+                onCancelTranslation()
+              } else {
+                onSubmit()
+              }
             }}
           >
-            <input
-              type="text"
-              value={urlInput}
-              onChange={(e) => onUrlInputChange(e.target.value)}
-              placeholder="소설 URL 또는 텍스트를 입력하세요"
-              className="min-w-0 flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-900 shadow-inner focus:border-accent focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-            />
+            <div className="relative min-w-0 flex-1">
+              <input
+                type="text"
+                value={urlInput}
+                onChange={(e) => onUrlInputChange(e.target.value.slice(0, MAX_INPUT_LENGTH))}
+                maxLength={MAX_INPUT_LENGTH}
+                placeholder="소설 URL 또는 텍스트를 입력하세요"
+                disabled={isTranslating}
+                className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-900 shadow-inner focus:border-accent focus:outline-none disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+              />
+              {urlInput.length > 1000 && (
+                <span className="pointer-events-none absolute -bottom-4 right-1 text-[10px] text-gray-400">
+                  {urlInput.length.toLocaleString()} / {MAX_INPUT_LENGTH.toLocaleString()}
+                </span>
+              )}
+            </div>
 
-            <Button type="submit" className="whitespace-nowrap px-5 py-2 shadow-sm">
-              불러오기
+            <Button
+              type="submit"
+              variant={isTranslating ? 'danger' : 'primary'}
+              className="whitespace-nowrap px-5 py-2 shadow-sm"
+            >
+              {isTranslating ? '중지' : '불러오기'}
             </Button>
           </form>
         </div>
