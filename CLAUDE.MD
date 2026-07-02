@@ -15,7 +15,8 @@ API 키 로테이션: 여러 개의 API 키를 줄 단위로 입력하면 번역
 
 ② 크롤링 및 웹 소설 전용 뷰어
 
-URL/텍스트 통합 입력창: 소설 사이트 주소나 직접 복사한 텍스트를 입력받음.(참고 url=https://www.69shuba.com/txt/88724/39943182 and  https://ixdzs8.com/read/562760/p624.html , https://twkan.com/txt/92130/56698741, https://m.xsw.tw/1758800/255482697.html 모두 대응 되어야함.)
+URL/텍스트 통합 입력창: 소설 사이트 주소나 직접 복사한 텍스트를 입력받음.(참고 url=https://www.69shuba.com/txt/88724/39943182 and  https://ixdzs8.com/read/562760/p624.html , https://twkan.com/txt/92130/56698741, https://m.xsw.tw/1758800/255482697.html 모두 대응 되어야함.
+69와 twkan은 클라우드플레어때문에 fetch로 안뚫림)
 
 CORS 우회 및 웹 파싱: 중간 서버 또는 프론트엔드 우회 방식으로 소설 본문을 긁어와 광고를 제거하고 가독성 높은 뷰어로 가공.
 

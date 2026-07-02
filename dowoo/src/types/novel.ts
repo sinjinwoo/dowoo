@@ -4,6 +4,8 @@ export interface Chapter {
   sourceUrl: string
   originalText: string
   translatedText: string
+  prevUrl?: string | null
+  nextUrl?: string | null
 }
 
 export interface Novel {
