@@ -1,0 +1,21 @@
+import type { Chapter } from '../../types/novel'
+import type { ThemeSettings } from '../../types/settings'
+import ViewerToolbar from './ViewerToolbar'
+import ViewerContent from './ViewerContent'
+import TranslationProgressBar from './TranslationProgressBar'
+
+export interface NovelViewerProps {
+  chapter: Chapter
+  theme: ThemeSettings
+  progress: number
+}
+
+export default function NovelViewer({ chapter, theme, progress }: NovelViewerProps) {
+  return (
+    <div>
+      <ViewerToolbar chapterTitle={chapter.title} />
+      <ViewerContent chapter={chapter} theme={theme} />
+      <TranslationProgressBar progress={progress} />
+    </div>
+  )
+}
