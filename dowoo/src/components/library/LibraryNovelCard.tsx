@@ -32,7 +32,7 @@ export default function LibraryNovelCard({
     <div
       ref={setNodeRef}
       style={style}
-      className="relative flex gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900"
+      className="relative flex w-full min-w-0 gap-3 overflow-hidden rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900"
     >
       <button
         type="button"

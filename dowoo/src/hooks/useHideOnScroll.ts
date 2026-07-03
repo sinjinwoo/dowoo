@@ -19,7 +19,7 @@ export function useHideOnScroll(topThreshold = 10, resetKey?: unknown) {
     return () => window.removeEventListener('scroll', handleScroll)
   }, [topThreshold])
 
-  const show = () => setHidden(false)
+  const toggle = () => setHidden((h) => !h)
 
-  return [hidden, show] as const
+  return [hidden, toggle] as const
 }

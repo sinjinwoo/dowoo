@@ -46,7 +46,7 @@ function App() {
   const [currentChapterIndex, setCurrentChapterIndex] = useState(0)
   const [activeChapter, setActiveChapter] = useState<Chapter | null>(null)
 
-  const [apiSettings, setApiSettings] = useState<ApiSettingsResponse>({ model: 'gemini-2.5-flash', thinkingBudget: null, apiKeys: [] })
+  const [apiSettings, setApiSettings] = useState<ApiSettingsResponse>({ model: '', thinkingBudget: null, apiKeys: [] })
   const [theme, setTheme] = useState<ThemeSettings>(defaultTheme)
   const [customThemePresets, setCustomThemePresets] = useState<{ name: string; theme: Partial<ThemeSettings> }[]>([])
 
@@ -142,13 +142,18 @@ function App() {
     }
   }, [activeNovelDetail?.id, currentChapterIndex])
 
-  const [topBarHidden, showTopBar] = useHideOnScroll(10, urlInput)
+  // urlInput을 resetKey로 쓰면 타이핑할 때마다(글자마다) 상단바가 숨겨지므로,
+  // 챕터가 실제로 바뀔 때만 다시 보여지도록 activeChapter?.id를 기준으로 삼는다.
+  const [topBarHidden, toggleTopBar] = useHideOnScroll(10, activeChapter?.id)
 
   const handleCancelTranslation = () => {
     abortControllerRef.current?.abort()
   }
 
   const handleTranslate = async (novelId: string, chapterId: string) => {
+    // 이미 진행 중인 스트림이 있으면(예: 자동 번역 트리거와 "다시 번역" 제출이 겹친 경우)
+    // 취소하고 이 요청이 이어받는다 - 두 스트림이 동시에 activeChapter를 덮어쓰는 걸 방지.
+    abortControllerRef.current?.abort()
     const controller = new AbortController()
     abortControllerRef.current = controller
 
@@ -184,7 +189,8 @@ function App() {
     }
   }
 
-  // 챕터를 불러왔는데 아직 번역이 안 되어 있으면(최초 진입 또는 이전 시도가 끊긴 경우) 자동으로 번역을 시작한다.
+  // 챕터에 번역 결과가 아예 없을 때만(최초 진입 또는 이전 시도가 끊겨 저장 전이었던 경우) 자동으로
+  // 번역을 시작한다. 이미 번역된 챕터를 다시 번역하려면 반드시 "불러오기" 버튼(forceRecrawl)을 눌러야 한다.
   useEffect(() => {
     if (activeChapter && !activeChapter.translatedText && translationStatus === 'idle') {
       void handleTranslate(activeChapter.novelId, activeChapter.id)
@@ -200,12 +206,20 @@ function App() {
     const isUrl = /^https?:\/\//i.test(input)
 
     try {
-      const result = await readSource(isUrl ? { sourceUrl: input } : { pastedText: input })
+      // URL 재제출은 "다시 번역"으로 취급한다 - 이미 불러온 소설이라도 forceRecrawl로
+      // 원문을 다시 가져오고, 캐시된 번역 여부와 무관하게 재번역한다.
+      const result = await readSource(
+        isUrl ? { sourceUrl: input, forceRecrawl: true } : { pastedText: input }
+      )
       await refreshNovels()
       const detail = await getNovelDetail(result.novelId)
       setActiveNovelDetail(detail)
       const index = detail.chapters.findIndex((c) => c.id === result.chapterId)
       setCurrentChapterIndex(index >= 0 ? index : 0)
+
+      const chapter = await getChapter(result.novelId, result.chapterId)
+      setActiveChapter(chapter)
+      void handleTranslate(result.novelId, result.chapterId)
     } catch (error) {
       setTranslationError({
         type: 'crawling',
@@ -275,12 +289,12 @@ function App() {
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenLibrary={() => setIsLibraryOpen(true)}
           hidden={topBarHidden}
-          onShow={showTopBar}
           isTranslating={translationStatus === 'translating'}
           onCancelTranslation={handleCancelTranslation}
         />
       }
       topBarHidden={topBarHidden}
+      onContentClick={toggleTopBar}
       mainStyle={{ backgroundColor: theme.bgColor, color: theme.fontColor }}
     >
       {activeNovelDetail && activeChapter ? (
@@ -317,7 +331,7 @@ function App() {
       <SettingsDrawer
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
-        model={apiSettings.model ?? 'gemini-2.5-flash'}
+        model={apiSettings.model ?? ''}
         apiKeys={apiSettings.apiKeys}
         onModelChange={(model) => void saveModelSettings(model, apiSettings.thinkingBudget ?? undefined).then(setApiSettings)}
         onAddApiKey={(key) => void addApiKey(key).then(setApiSettings)}

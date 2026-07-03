@@ -11,10 +11,16 @@ export interface ApiSettingsPanelProps {
   onDeleteKey: (keyId: string) => void
 }
 
+// preview 모델(gemini-3-flash-preview 등)은 보통 결제(billing)가 켜져 있어야 해서 목록에서 제외.
+// "자동"을 고르면 서버가 gemini-2.5-flash → gemini-2.5-flash-lite → gemini-3.5-flash 순서로
+// (키 로테이션을 모델마다 전부 소진한 뒤) 시도한다. 특정 모델을 고르면 그 모델만 시도하고 실패하면 끝.
 const modelOptions = [
+  { value: '', label: '자동 (무료 모델 순서대로 시도)' },
   { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+  { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite' },
   { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-  { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash (Preview)' },
+  { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
+  { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
 ]
 
 export default function ApiSettingsPanel({ model, apiKeys, onModelChange, onAddKey, onDeleteKey }: ApiSettingsPanelProps) {
@@ -40,14 +46,14 @@ export default function ApiSettingsPanel({ model, apiKeys, onModelChange, onAddK
             {apiKeys.map((key) => (
               <li
                 key={key.id}
-                className="flex items-center justify-between rounded-lg border border-gray-300 px-3 py-2 font-mono text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                className="flex items-center justify-between gap-2 rounded-lg border border-gray-300 px-3 py-2 font-mono text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
               >
-                <span>{key.masked}</span>
+                <span className="min-w-0 flex-1 truncate">{key.masked}</span>
                 <button
                   type="button"
                   onClick={() => onDeleteKey(key.id)}
                   aria-label="키 삭제"
-                  className="text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400"
+                  className="shrink-0 text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400"
                 >
                   삭제
                 </button>
