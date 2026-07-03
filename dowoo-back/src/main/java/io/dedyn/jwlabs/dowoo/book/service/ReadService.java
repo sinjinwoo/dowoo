@@ -15,6 +15,7 @@ import io.dedyn.jwlabs.dowoo.library.entity.Novel;
 import io.dedyn.jwlabs.dowoo.library.entity.NovelPrompt;
 import io.dedyn.jwlabs.dowoo.library.repository.NovelPromptRepository;
 import io.dedyn.jwlabs.dowoo.library.repository.NovelRepository;
+import io.dedyn.jwlabs.dowoo.library.support.DefaultPrompts;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -81,7 +82,7 @@ public class ReadService {
 
         Novel novel = new Novel();
         novel.setUser(userRef);
-        novel.setTitle(StringUtils.hasText(crawled.title()) ? crawled.title() : sourceUrl);
+        novel.setTitle(resolveNovelTitle(crawled, sourceUrl));
         novel.setSourceUrl(sourceUrl);
         novel.setSiteName(crawled.siteName());
         novel.setOrderIndex((int) novelRepository.countByUserId(userId));
@@ -91,6 +92,7 @@ public class ReadService {
 
         NovelPrompt prompt = new NovelPrompt();
         prompt.setNovel(novel);
+        prompt.setSystemPrompt(DefaultPrompts.SYSTEM_PROMPT);
         prompt.setUpdatedAt(now);
         novelPromptRepository.save(prompt);
 
@@ -127,6 +129,7 @@ public class ReadService {
 
         NovelPrompt prompt = new NovelPrompt();
         prompt.setNovel(novel);
+        prompt.setSystemPrompt(DefaultPrompts.SYSTEM_PROMPT);
         prompt.setUpdatedAt(now);
         novelPromptRepository.save(prompt);
 
@@ -142,5 +145,16 @@ public class ReadService {
         chapter = chapterRepository.save(chapter);
 
         return new ReadResponse(novel.getId(), chapter.getId(), "");
+    }
+
+    /** 크롤러가 책 제목(bookTitle)을 못 찾는 사이트도 있어(파서 한계), 챕터 제목 → sourceUrl 순으로 폴백한다. */
+    private String resolveNovelTitle(CrawlResult crawled, String sourceUrl) {
+        if (StringUtils.hasText(crawled.bookTitle())) {
+            return crawled.bookTitle();
+        }
+        if (StringUtils.hasText(crawled.title())) {
+            return crawled.title();
+        }
+        return sourceUrl;
     }
 }

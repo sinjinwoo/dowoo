@@ -31,6 +31,7 @@ def parse_69shuba(html: str) -> dict:
 
     return {
         "title": title,
+        "book_title": bookinfo["articlename"] or None,
         "content": text,
         "prev": bookinfo["previewPage"],
         "next": bookinfo["nextPage"],

@@ -48,6 +48,7 @@ async def crawl_chapter(url: str) -> dict:
 
     return {
         "title": raw["title"],
+        "bookTitle": raw.get("book_title"),
         "content": raw["content"],
         "prevUrl": _resolve_relative(raw.get("prev"), url),
         "nextUrl": _resolve_relative(raw.get("next"), url),

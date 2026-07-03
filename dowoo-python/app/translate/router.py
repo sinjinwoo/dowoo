@@ -19,7 +19,7 @@ async def translate(request: TranslateRequest):
     async def event_source():
         async for item in translate_stream(
             api_keys=request.apiKeys,
-            model=request.model,
+            models=request.models,
             system_prompt=request.systemPrompt,
             translation_note=request.translationNote or "",
             original_text=request.originalText,

@@ -9,7 +9,7 @@ class CrawlRequest(BaseModel):
 
 class TranslateRequest(BaseModel):
     apiKeys: List[str]
-    model: str
+    models: List[str]
     thinkingBudget: Optional[int] = None
     systemPrompt: str
     translationNote: Optional[str] = ""

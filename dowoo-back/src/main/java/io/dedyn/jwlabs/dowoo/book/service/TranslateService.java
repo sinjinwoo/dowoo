@@ -8,6 +8,7 @@ import io.dedyn.jwlabs.dowoo.library.entity.Novel;
 import io.dedyn.jwlabs.dowoo.library.entity.NovelPrompt;
 import io.dedyn.jwlabs.dowoo.library.repository.NovelPromptRepository;
 import io.dedyn.jwlabs.dowoo.library.repository.NovelRepository;
+import io.dedyn.jwlabs.dowoo.library.support.DefaultPrompts;
 import io.dedyn.jwlabs.dowoo.settings.crypto.ApiKeyCipher;
 import io.dedyn.jwlabs.dowoo.settings.entity.ApiKey;
 import io.dedyn.jwlabs.dowoo.settings.entity.ApiKeySetting;
@@ -42,9 +43,11 @@ import java.util.concurrent.Executors;
 @Service
 public class TranslateService {
 
-    private static final String DEFAULT_SYSTEM_PROMPT =
-            "당신은 전문 웹소설 번역가입니다. 아래 원문을 자연스러운 한국어로 번역하세요. "
-                    + "문체와 어조를 원문에 맞게 유지하고, 등장인물의 말투 차이를 살려주세요.\n\n{{memo}}";
+    // 사용자가 모델을 지정하지 않으면(설정 미지정=자동) 이 순서로 시도한다 - 무료 티어에서 안정적으로
+    // 쓸 수 있는 정식 출시(비-preview) 모델 우선. preview 모델은 보통 결제(billing)가 켜져 있어야 해서
+    // 자동 목록에서 제외한다.
+    private static final List<String> DEFAULT_MODEL_FALLBACK =
+            List.of("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.5-flash");
 
     private final ChapterRepository chapterRepository;
     private final NovelRepository novelRepository;
@@ -98,19 +101,22 @@ public class TranslateService {
                     "번역에 사용할 API 키가 없습니다. 설정 화면에서 API 키를 입력해주세요.");
         }
         ApiKeySetting setting = apiKeySettingRepository.findByUserId(userId).orElse(null);
-        String model = (setting != null && StringUtils.hasText(setting.getModel())) ? setting.getModel() : "gemini-2.5-flash";
+        // 사용자가 모델을 명시했으면 그 모델만 시도(실패하면 그대로 실패) - 아니면 무료 친화적 모델을 순서대로 시도.
+        List<String> models = (setting != null && StringUtils.hasText(setting.getModel()))
+                ? List.of(setting.getModel())
+                : DEFAULT_MODEL_FALLBACK;
         Integer thinkingBudget = setting != null ? setting.getThinkingBudget() : null;
 
         NovelPrompt prompt = novelPromptRepository.findByNovelId(novelId).orElse(null);
         String systemPrompt = (prompt != null && StringUtils.hasText(prompt.getSystemPrompt()))
-                ? prompt.getSystemPrompt() : DEFAULT_SYSTEM_PROMPT;
+                ? prompt.getSystemPrompt() : DefaultPrompts.SYSTEM_PROMPT;
         String translationNote = prompt != null && prompt.getTranslationNote() != null ? prompt.getTranslationNote() : "";
 
         List<String> decryptedKeys = apiKeys.stream().map(k -> apiKeyCipher.decrypt(k.getEncryptedKey())).toList();
 
         Map<String, Object> requestBody = new LinkedHashMap<>();
         requestBody.put("apiKeys", decryptedKeys);
-        requestBody.put("model", model);
+        requestBody.put("models", models);
         requestBody.put("thinkingBudget", thinkingBudget);
         requestBody.put("systemPrompt", systemPrompt);
         requestBody.put("translationNote", translationNote);

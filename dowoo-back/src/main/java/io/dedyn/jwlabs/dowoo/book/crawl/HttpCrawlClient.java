@@ -58,6 +58,7 @@ public class HttpCrawlClient implements CrawlClient {
 
         return new CrawlResult(
                 (String) data.get("title"),
+                (String) data.get("bookTitle"),
                 (String) data.get("content"),
                 (String) data.get("prevUrl"),
                 (String) data.get("nextUrl"),
