@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-dowoo}
+      POSTGRES_USER: ${DB_USER:-dowoo}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-dowoo}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-dowoo} -d ${DB_NAME:-dowoo}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5432:5432"
+    networks:
+      - dowoo-net
+
+  core-api:
+    build:
+      context: ./dowoo-back
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-dowoo}
+      DB_USER: ${DB_USER:-dowoo}
+      DB_PASSWORD: ${DB_PASSWORD:-dowoo}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-dev-internal-token}
+      AI_API_BASE_URL: http://ai-api:8000
+      API_KEY_ENCRYPTION_SECRET: ${API_KEY_ENCRYPTION_SECRET:-0123456789abcdef0123456789abcdef}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    networks:
+      - dowoo-net
+
+networks:
+  dowoo-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
