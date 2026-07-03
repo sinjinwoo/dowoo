@@ -1,9 +1,3 @@
-export interface ApiSettings {
-  apiKeys: string[]
-  model: string
-  thinkingBudget?: number
-}
-
 export interface ThemeSettings {
   fontFamily: string
   fontColor: string

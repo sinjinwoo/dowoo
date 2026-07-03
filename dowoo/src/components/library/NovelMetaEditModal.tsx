@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
-import type { Novel } from '../../types/novel'
+import type { NovelDetail } from '../../types/novel'
 import Modal from '../ui/Modal'
 import Button from '../ui/Button'
 
 export interface NovelMetaEditModalProps {
   isOpen: boolean
-  novel: Novel | null
+  novel: NovelDetail | null
   onClose: () => void
   onSave: (
     title: string,
@@ -30,8 +30,8 @@ export default function NovelMetaEditModal({
     if (novel) {
       setTitle(novel.title)
       setCoverUrl(novel.coverUrl ?? '')
-      setSystemPrompt(novel.systemPrompt)
-      setTranslationNote(novel.translationNote)
+      setSystemPrompt(novel.systemPrompt ?? '')
+      setTranslationNote(novel.translationNote ?? '')
     }
   }, [novel])
 

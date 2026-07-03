@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
 import AppShell from './components/layout/AppShell'
 import TopBar from './components/layout/TopBar'
 import ChapterNavBar from './components/layout/ChapterNavBar'
@@ -7,83 +6,141 @@ import NovelViewer from './components/viewer/NovelViewer'
 import SettingsDrawer from './components/settings/SettingsDrawer'
 import LibraryDrawer from './components/library/LibraryDrawer'
 import ErrorModal from './components/ui/ErrorModal'
-import { db } from './db/db'
+import { API_BASE } from './api/client'
 import {
-  seedNovelsIfEmpty,
+  listNovels,
+  getNovelDetail,
   patchNovel,
-  patchChapterText,
-  upsertNovel,
   deleteNovel,
   reorderNovels,
-} from './db/novelsRepo'
-import { getApiSettings, saveApiSettings, saveThemePreset, deleteThemePreset } from './db/settingsRepo'
-import { loadTheme, saveTheme, loadLastSession, saveLastSession } from './storage/localSettings'
-import { defaultApiSettings, defaultTheme, defaultSystemPrompt } from './data/defaults'
+  updateLastRead,
+  exportNovelUrl,
+  readSource,
+} from './api/novels'
+import { getChapter } from './api/chapters'
+import {
+  getApiSettings,
+  saveModelSettings,
+  addApiKey,
+  deleteApiKey,
+  getTheme,
+  saveTheme,
+  listThemePresets,
+  saveThemePreset,
+  deleteThemePreset,
+  type ApiSettingsResponse,
+} from './api/settings'
+import { translateStream, TranslationAbortedError } from './api/translateStream'
+import { loadLastSession, saveLastSession } from './storage/localSettings'
+import { defaultTheme } from './data/defaults'
 import { useHideOnScroll } from './hooks/useHideOnScroll'
-import { translateStream, TranslationAbortedError } from './ai/geminiClient'
-import { crawlChapter, isSupportedUrl } from './crawl/registry'
 import type { ThemeSettings } from './types/settings'
-import type { Novel } from './types/novel'
+import type { Novel, NovelDetail, Chapter } from './types/novel'
 
 type TranslationError = { type: 'crawling' | 'gemini'; message: string }
 
 function App() {
-  useEffect(() => {
-    void seedNovelsIfEmpty()
-    void (async () => {
-      const existing = await getApiSettings()
-      if (!existing) await saveApiSettings(defaultApiSettings)
-    })()
-  }, [])
+  const [isLoading, setIsLoading] = useState(true)
+  const [novels, setNovels] = useState<Novel[]>([])
+  const [activeNovelDetail, setActiveNovelDetail] = useState<NovelDetail | null>(null)
+  const [currentChapterIndex, setCurrentChapterIndex] = useState(0)
+  const [activeChapter, setActiveChapter] = useState<Chapter | null>(null)
 
-  const novelsQuery = useLiveQuery(() => db.novels.toArray(), [])
-  const apiSettingsQuery = useLiveQuery(() => getApiSettings(), [])
-  const customThemePresetsQuery = useLiveQuery(() => db.themePresets.toArray(), [])
+  const [apiSettings, setApiSettings] = useState<ApiSettingsResponse>({ model: 'gemini-2.5-flash', thinkingBudget: null, apiKeys: [] })
+  const [theme, setTheme] = useState<ThemeSettings>(defaultTheme)
+  const [customThemePresets, setCustomThemePresets] = useState<{ name: string; theme: Partial<ThemeSettings> }[]>([])
 
-  const novels = (novelsQuery ?? []).slice().sort((a, b) => a.order - b.order)
-  const apiSettings = apiSettingsQuery ?? defaultApiSettings
-  const customThemePresets = customThemePresetsQuery ?? []
-
-  const [lastSession] = useState(() => loadLastSession())
-  const [activeNovelId, setActiveNovelId] = useState(lastSession?.activeNovelId ?? '')
-  const [currentChapterIndex, setCurrentChapterIndex] = useState(lastSession?.currentChapterIndex ?? 0)
   const [urlInput, setUrlInput] = useState('')
-
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isLibraryOpen, setIsLibraryOpen] = useState(false)
-
-  const [theme, setTheme] = useState<ThemeSettings>(() => loadTheme() ?? defaultTheme)
 
   const [translationStatus, setTranslationStatus] = useState<'idle' | 'translating'>('idle')
   const [translationError, setTranslationError] = useState<TranslationError | null>(null)
   const [streamingChapterId, setStreamingChapterId] = useState<string | null>(null)
   const [streamingText, setStreamingText] = useState('')
-  const [streamingTotalChars, setStreamingTotalChars] = useState(0)
+  const [streamingProgress, setStreamingProgress] = useState(0)
   const abortControllerRef = useRef<AbortController | null>(null)
 
-  const activeNovel = novels.find((n) => n.id === activeNovelId) ?? novels[0]
-  const chapter = activeNovel?.chapters[currentChapterIndex]
+  const refreshNovels = async () => {
+    setNovels(await listNovels())
+  }
 
+  const openNovelDetail = async (novelId: string, chapterIndex: number) => {
+    const detail = await getNovelDetail(novelId)
+    setActiveNovelDetail(detail)
+    setCurrentChapterIndex(Math.min(Math.max(0, chapterIndex), Math.max(0, detail.chapters.length - 1)))
+  }
+
+  // 초기 로딩: 서재/설정/테마를 병렬로 가져오고, 마지막 세션(localStorage)이 있으면 이어서 연다.
   useEffect(() => {
-    if (!lastSession && activeNovel) {
-      setActiveNovelId(activeNovel.id)
-      setCurrentChapterIndex(activeNovel.lastReadChapterIndex)
+    void (async () => {
+      try {
+        const [novelList, settings, themeData, presets] = await Promise.all([
+          listNovels(),
+          getApiSettings(),
+          getTheme(),
+          listThemePresets(),
+        ])
+        setNovels(novelList)
+        setApiSettings(settings)
+        setTheme(themeData)
+        setCustomThemePresets(presets)
+
+        const session = loadLastSession()
+        if (session && novelList.some((n) => n.id === session.activeNovelId)) {
+          await openNovelDetail(session.activeNovelId, session.currentChapterIndex)
+        } else if (novelList.length > 0) {
+          await openNovelDetail(novelList[0].id, novelList[0].lastReadChapterIndex ?? 0)
+        }
+      } catch (error) {
+        setTranslationError({
+          type: 'gemini',
+          message: error instanceof Error ? error.message : String(error),
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    })()
+  }, [])
+
+  // 활성 소설/챕터 인덱스가 바뀌면 해당 챕터 본문을 불러온다.
+  useEffect(() => {
+    const chapterMeta = activeNovelDetail?.chapters[currentChapterIndex]
+    if (!activeNovelDetail || !chapterMeta) {
+      setActiveChapter(null)
+      return
     }
-  }, [activeNovel, lastSession])
 
-  useEffect(() => {
-    if (activeNovel) {
-      saveLastSession({ activeNovelId: activeNovel.id, currentChapterIndex })
+    let cancelled = false
+    setActiveChapter(null)
+    getChapter(activeNovelDetail.id, chapterMeta.id)
+      .then((chapter) => {
+        if (!cancelled) setActiveChapter(chapter)
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setTranslationError({
+            type: 'gemini',
+            message: error instanceof Error ? error.message : String(error),
+          })
+        }
+      })
+    return () => {
+      cancelled = true
     }
-  }, [activeNovel?.id, currentChapterIndex])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeNovelDetail?.id, currentChapterIndex, activeNovelDetail?.chapters.length])
 
   useEffect(() => {
-    if (chapter) setUrlInput(chapter.sourceUrl)
-  }, [chapter])
+    if (activeChapter) setUrlInput(activeChapter.sourceUrl)
+  }, [activeChapter])
 
   useEffect(() => {
-    saveTheme(theme)
-  }, [theme])
+    if (activeNovelDetail) {
+      saveLastSession({ activeNovelId: activeNovelDetail.id, currentChapterIndex })
+      void updateLastRead(activeNovelDetail.id, currentChapterIndex)
+    }
+  }, [activeNovelDetail?.id, currentChapterIndex])
 
   const [topBarHidden, showTopBar] = useHideOnScroll(10, urlInput)
 
@@ -91,128 +148,30 @@ function App() {
     abortControllerRef.current?.abort()
   }
 
-  const handleSubmit = async () => {
-    const input = urlInput.trim()
-    if (!input || translationStatus === 'translating') return
-
-    setTranslationError(null)
-
-    // 이미 서재(IndexedDB)에 같은 URL/원문으로 저장된 소설이 있으면 새로 만들지 않고 그걸 바로 보여줌
-    const existingNovel = novels.find(
-      (n) =>
-        (n.sourceUrl && n.sourceUrl === input) ||
-        n.chapters.some((c) => c.sourceUrl === input || c.originalText === input)
-    )
-    if (existingNovel) {
-      const existingChapterIndex = existingNovel.chapters.findIndex(
-        (c) => c.sourceUrl === input || c.originalText === input
-      )
-      setActiveNovelId(existingNovel.id)
-      setCurrentChapterIndex(Math.max(0, existingChapterIndex))
-      return
-    }
-
-    const isUrl = /^https?:\/\//i.test(input)
-
-    let originalText: string
-    let chapterTitle: string
-    let chapterSourceUrl = ''
-    let prevUrl: string | null = null
-    let nextUrl: string | null = null
-    let siteName = '직접 입력'
-
-    if (isUrl) {
-      if (!isSupportedUrl(input)) {
-        setTranslationError({ type: 'crawling', message: '지원하지 않는 사이트 주소입니다.' })
-        return
-      }
-
-      try {
-        const parsed = await crawlChapter(input)
-        originalText = parsed.content
-        chapterTitle = parsed.title || '제목 미상'
-        chapterSourceUrl = input
-        prevUrl = parsed.prevUrl
-        nextUrl = parsed.nextUrl
-        siteName = new URL(input).hostname
-      } catch (error) {
-        setTranslationError({
-          type: 'crawling',
-          message: error instanceof Error ? error.message : String(error),
-        })
-        return
-      }
-    } else {
-      originalText = input
-      const firstLine = input
-        .split('\n')
-        .map((line) => line.trim())
-        .find(Boolean)
-      chapterTitle = (firstLine ?? '제목 미상').slice(0, 60)
-    }
-
-    const newNovelId = crypto.randomUUID()
-    const newChapterId = crypto.randomUUID()
-
-    const nextOrder = novels.length > 0 ? Math.max(...novels.map((n) => n.order)) + 1 : 0
-
-    const newNovel: Novel = {
-      id: newNovelId,
-      title: chapterTitle,
-      sourceUrl: chapterSourceUrl,
-      siteName,
-      translationNote: '',
-      systemPrompt: defaultSystemPrompt,
-      lastReadChapterIndex: 0,
-      order: nextOrder,
-      chapters: [
-        {
-          id: newChapterId,
-          title: chapterTitle,
-          sourceUrl: chapterSourceUrl,
-          originalText,
-          translatedText: '',
-          prevUrl,
-          nextUrl,
-        },
-      ],
-    }
-
-    await upsertNovel(newNovel)
-    setActiveNovelId(newNovelId)
-    setCurrentChapterIndex(0)
-
+  const handleTranslate = async (novelId: string, chapterId: string) => {
     const controller = new AbortController()
     abortControllerRef.current = controller
 
     setTranslationStatus('translating')
-    setStreamingChapterId(newChapterId)
+    setStreamingChapterId(chapterId)
     setStreamingText('')
-    setStreamingTotalChars(originalText.length)
+    setStreamingProgress(0)
+    setTranslationError(null)
 
-    let accumulatedText = ''
-
+    let accumulated = ''
     try {
-      await translateStream({
-        apiKeys: apiSettings.apiKeys,
-        model: apiSettings.model,
-        systemPrompt: newNovel.systemPrompt,
-        translationNote: newNovel.translationNote,
-        originalText,
+      const finalText = await translateStream({
+        novelId,
+        chapterId,
         signal: controller.signal,
         onLine: (line) => {
-          accumulatedText = accumulatedText ? `${accumulatedText}\n${line}` : line
-          setStreamingText(accumulatedText)
+          accumulated = accumulated ? `${accumulated}\n${line}` : line
+          setStreamingText(accumulated)
         },
+        onProgress: setStreamingProgress,
       })
-
-      await patchChapterText(newNovelId, newChapterId, accumulatedText)
+      setActiveChapter((prev) => (prev && prev.id === chapterId ? { ...prev, translatedText: finalText } : prev))
     } catch (error) {
-      // 취소되었거나 도중에 실패해도, 그때까지 번역된 내용은 그대로 저장해 둔다
-      if (accumulatedText) {
-        await patchChapterText(newNovelId, newChapterId, accumulatedText)
-      }
-
       if (!(error instanceof TranslationAbortedError)) {
         setTranslationError({
           type: 'gemini',
@@ -225,17 +184,86 @@ function App() {
     }
   }
 
-  if (novelsQuery === undefined) {
+  // 챕터를 불러왔는데 아직 번역이 안 되어 있으면(최초 진입 또는 이전 시도가 끊긴 경우) 자동으로 번역을 시작한다.
+  useEffect(() => {
+    if (activeChapter && !activeChapter.translatedText && translationStatus === 'idle') {
+      void handleTranslate(activeChapter.novelId, activeChapter.id)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeChapter?.id])
+
+  const handleSubmit = async () => {
+    const input = urlInput.trim()
+    if (!input || translationStatus === 'translating') return
+    setTranslationError(null)
+
+    const isUrl = /^https?:\/\//i.test(input)
+
+    try {
+      const result = await readSource(isUrl ? { sourceUrl: input } : { pastedText: input })
+      await refreshNovels()
+      const detail = await getNovelDetail(result.novelId)
+      setActiveNovelDetail(detail)
+      const index = detail.chapters.findIndex((c) => c.id === result.chapterId)
+      setCurrentChapterIndex(index >= 0 ? index : 0)
+    } catch (error) {
+      setTranslationError({
+        type: 'crawling',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  const handleSelectNovel = async (novel: Novel) => {
+    await openNovelDetail(novel.id, novel.lastReadChapterIndex ?? 0)
+    setIsLibraryOpen(false)
+  }
+
+  const handleUpdateNovel = async (
+    novelId: string,
+    title: string,
+    coverUrl: string,
+    systemPrompt: string,
+    translationNote: string
+  ) => {
+    await patchNovel(novelId, { title, coverUrl, systemPrompt, translationNote })
+    void refreshNovels()
+    if (activeNovelDetail?.id === novelId) {
+      setActiveNovelDetail(await getNovelDetail(novelId))
+    }
+  }
+
+  const handleDeleteNovel = async (novelId: string) => {
+    await deleteNovel(novelId)
+    void refreshNovels()
+    if (activeNovelDetail?.id === novelId) {
+      setActiveNovelDetail(null)
+      setActiveChapter(null)
+    }
+  }
+
+  const handleReorderNovels = async (orderedIds: string[]) => {
+    setNovels((prev) => {
+      const byId = new Map(prev.map((n) => [n.id, n]))
+      return orderedIds.map((id, index) => ({ ...byId.get(id)!, order: index }))
+    })
+    await reorderNovels(orderedIds)
+  }
+
+  const handleDownloadNovel = (novel: Novel) => {
+    const link = document.createElement('a')
+    link.href = `${API_BASE}${exportNovelUrl(novel.id)}`
+    link.click()
+  }
+
+  if (isLoading) {
     return <div className="flex min-h-screen items-center justify-center text-gray-500">불러오는 중...</div>
   }
 
   const displayedTranslatedText =
-    chapter && chapter.id === streamingChapterId && streamingText.length > 0 ? streamingText : undefined
+    activeChapter && activeChapter.id === streamingChapterId && streamingText.length > 0 ? streamingText : undefined
 
-  const translationProgress =
-    translationStatus === 'translating' && streamingTotalChars > 0
-      ? Math.min(99, (streamingText.length / streamingTotalChars) * 100)
-      : 0
+  const translationProgress = translationStatus === 'translating' ? streamingProgress : 0
 
   return (
     <AppShell
@@ -255,23 +283,25 @@ function App() {
       topBarHidden={topBarHidden}
       mainStyle={{ backgroundColor: theme.bgColor, color: theme.fontColor }}
     >
-      {activeNovel && chapter ? (
+      {activeNovelDetail && activeChapter ? (
         <>
           <NovelViewer
-            chapter={chapter}
+            chapter={activeChapter}
             theme={theme}
             progress={translationProgress}
             displayedTranslatedText={displayedTranslatedText}
-            isTranslating={translationStatus === 'translating' && chapter.id === streamingChapterId}
+            isTranslating={translationStatus === 'translating' && activeChapter.id === streamingChapterId}
           />
 
           <ChapterNavBar
             onPrevChapter={() => setCurrentChapterIndex((i) => Math.max(0, i - 1))}
             onNextChapter={() =>
-              setCurrentChapterIndex((i) => Math.min(activeNovel.chapters.length - 1, i + 1))
+              setCurrentChapterIndex((i) => Math.min(activeNovelDetail.chapters.length - 1, i + 1))
             }
           />
         </>
+      ) : activeNovelDetail ? (
+        <p className="py-20 text-center text-gray-400">챕터를 불러오는 중...</p>
       ) : (
         <p className="py-20 text-center text-gray-400">
           서재가 비어 있습니다. 상단바에 번역할 텍스트를 붙여넣고 "불러오기"를 눌러보세요.
@@ -287,30 +317,41 @@ function App() {
       <SettingsDrawer
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
-        apiSettings={apiSettings}
-        onApiSettingsChange={(settings) => void saveApiSettings(settings)}
+        model={apiSettings.model ?? 'gemini-2.5-flash'}
+        apiKeys={apiSettings.apiKeys}
+        onModelChange={(model) => void saveModelSettings(model, apiSettings.thinkingBudget ?? undefined).then(setApiSettings)}
+        onAddApiKey={(key) => void addApiKey(key).then(setApiSettings)}
+        onDeleteApiKey={(keyId) => {
+          void deleteApiKey(keyId)
+          setApiSettings((prev) => ({ ...prev, apiKeys: prev.apiKeys.filter((k) => k.id !== keyId) }))
+        }}
         theme={theme}
-        onThemeChange={setTheme}
+        onThemeChange={(next) => {
+          setTheme(next)
+          void saveTheme(next)
+        }}
         customThemePresets={customThemePresets}
-        onSaveCustomThemePreset={(name) => void saveThemePreset({ name, theme })}
-        onDeleteCustomThemePreset={(name) => void deleteThemePreset(name)}
+        onSaveCustomThemePreset={(name) =>
+          void saveThemePreset({ name, theme }).then(() => listThemePresets()).then(setCustomThemePresets)
+        }
+        onDeleteCustomThemePreset={(name) => {
+          void deleteThemePreset(name)
+          setCustomThemePresets((prev) => prev.filter((p) => p.name !== name))
+        }}
       />
 
       <LibraryDrawer
         isOpen={isLibraryOpen}
         onClose={() => setIsLibraryOpen(false)}
         novels={novels}
-        onSelectNovel={(novel) => {
-          setActiveNovelId(novel.id)
-          setCurrentChapterIndex(novel.lastReadChapterIndex)
-          setIsLibraryOpen(false)
-        }}
+        onSelectNovel={(novel) => void handleSelectNovel(novel)}
+        onLoadNovelDetail={getNovelDetail}
         onUpdateNovel={(novelId, title, coverUrl, systemPrompt, translationNote) =>
-          void patchNovel(novelId, { title, coverUrl, systemPrompt, translationNote })
+          void handleUpdateNovel(novelId, title, coverUrl, systemPrompt, translationNote)
         }
-        onDeleteNovel={(novelId) => void deleteNovel(novelId)}
-        onReorderNovels={(orderedIds) => void reorderNovels(orderedIds)}
-        onDownloadNovel={() => {}}
+        onDeleteNovel={(novelId) => void handleDeleteNovel(novelId)}
+        onReorderNovels={(orderedIds) => void handleReorderNovels(orderedIds)}
+        onDownloadNovel={handleDownloadNovel}
       />
     </AppShell>
   )

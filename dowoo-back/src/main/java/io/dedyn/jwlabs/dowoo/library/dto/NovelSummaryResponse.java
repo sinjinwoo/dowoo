@@ -12,6 +12,7 @@ public record NovelSummaryResponse(
         String siteName,
         long chapterCount,
         Integer lastReadChapterIndex,
+        String lastReadChapterTitle,
         Integer order,
         OffsetDateTime updatedAt
 ) {

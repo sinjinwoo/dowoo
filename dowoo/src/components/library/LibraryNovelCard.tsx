@@ -76,9 +76,7 @@ export default function LibraryNovelCard({
         >
           {novel.title}
         </button>
-        <p className="truncate text-xs text-gray-400">
-          {novel.chapters[novel.lastReadChapterIndex]?.title}
-        </p>
+        <p className="truncate text-xs text-gray-400">{novel.lastReadChapterTitle}</p>
         <div className="mt-2 flex gap-1">
           <Button variant="ghost" size="sm" onClick={onEdit}>
             편집
