@@ -50,10 +50,12 @@ public class ApiKeySettingsService {
 
     @Transactional
     public ApiSettingsResponse replace(ApiSettingsUpdateRequest request) {
-        for (String key : request.apiKeys()) {
-            if (!ASCII_PRINTABLE.matcher(key).matches()) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_API_KEY_FORMAT",
-                        "API 키에 사용할 수 없는 문자가 포함되어 있습니다.");
+        if (request.apiKeys() != null) {
+            for (String key : request.apiKeys()) {
+                if (!ASCII_PRINTABLE.matcher(key).matches()) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_API_KEY_FORMAT",
+                            "API 키에 사용할 수 없는 문자가 포함되어 있습니다.");
+                }
             }
         }
 
@@ -70,19 +72,21 @@ public class ApiKeySettingsService {
         setting.setUpdatedAt(OffsetDateTime.now());
         apiKeySettingRepository.save(setting);
 
-        apiKeyRepository.deleteByUserId(userId);
-        apiKeyRepository.flush();
+        if (request.apiKeys() != null) {
+            apiKeyRepository.deleteByUserId(userId);
+            apiKeyRepository.flush();
 
-        List<ApiKey> newKeys = new ArrayList<>();
-        for (int i = 0; i < request.apiKeys().size(); i++) {
-            ApiKey key = new ApiKey();
-            key.setUser(userRef);
-            key.setEncryptedKey(apiKeyCipher.encrypt(request.apiKeys().get(i)));
-            key.setKeyOrder(i);
-            key.setCreatedAt(OffsetDateTime.now());
-            newKeys.add(key);
+            List<ApiKey> newKeys = new ArrayList<>();
+            for (int i = 0; i < request.apiKeys().size(); i++) {
+                ApiKey key = new ApiKey();
+                key.setUser(userRef);
+                key.setEncryptedKey(apiKeyCipher.encrypt(request.apiKeys().get(i)));
+                key.setKeyOrder(i);
+                key.setCreatedAt(OffsetDateTime.now());
+                newKeys.add(key);
+            }
+            apiKeyRepository.saveAll(newKeys);
         }
-        apiKeyRepository.saveAll(newKeys);
 
         return get();
     }
@@ -90,6 +94,26 @@ public class ApiKeySettingsService {
     @Transactional
     public void deleteKey(UUID keyId) {
         apiKeyRepository.deleteByIdAndUserId(keyId, currentUserProvider.currentUserId());
+    }
+
+    /** 기존 키는 마스킹된 값만 조회 가능해 PUT(전체 교체)으로는 재입력 없이 추가할 수 없다 - 한 개만 이어붙이는 용도. */
+    @Transactional
+    public ApiSettingsResponse appendKey(String rawKey) {
+        if (!ASCII_PRINTABLE.matcher(rawKey).matches()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_API_KEY_FORMAT",
+                    "API 키에 사용할 수 없는 문자가 포함되어 있습니다.");
+        }
+        UUID userId = currentUserProvider.currentUserId();
+        int nextOrder = apiKeyRepository.findByUserIdOrderByKeyOrderAsc(userId).size();
+
+        ApiKey key = new ApiKey();
+        key.setUser(userRepository.getReferenceById(userId));
+        key.setEncryptedKey(apiKeyCipher.encrypt(rawKey));
+        key.setKeyOrder(nextOrder);
+        key.setCreatedAt(OffsetDateTime.now());
+        apiKeyRepository.save(key);
+
+        return get();
     }
 
     private String mask(String rawKey) {

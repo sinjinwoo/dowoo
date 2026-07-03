@@ -9,6 +9,7 @@ export interface ViewerContentProps {
   theme: ThemeSettings
   displayedTranslatedText?: string
   isTranslating?: boolean
+  progress?: number
 }
 
 export default function ViewerContent({
@@ -16,6 +17,7 @@ export default function ViewerContent({
   theme,
   displayedTranslatedText,
   isTranslating,
+  progress = 0,
 }: ViewerContentProps) {
   const translatedParagraphs = (displayedTranslatedText ?? chapter.translatedText).split('\n').filter(Boolean)
   const originalParagraphs = chapter.originalText.split('\n').filter(Boolean)
@@ -38,7 +40,7 @@ export default function ViewerContent({
           fontSize={theme.fontSize}
         />
       ))}
-      {isTranslating && <Spinner />}
+      {isTranslating && <Spinner label={`번역 중...${Math.round(progress)}%`} />}
     </div>
   )
 }

@@ -17,5 +17,7 @@ public interface ChapterRepository extends JpaRepository<Chapter, UUID> {
 
     Optional<Chapter> findBySourceUrlAndNovel_UserId(String sourceUrl, UUID userId);
 
+    Optional<Chapter> findByNovelIdAndChapterIndex(UUID novelId, Integer chapterIndex);
+
     long countByNovelId(UUID novelId);
 }

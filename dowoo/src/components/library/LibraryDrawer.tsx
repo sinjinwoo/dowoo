@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Novel } from '../../types/novel'
+import type { Novel, NovelDetail } from '../../types/novel'
 import Drawer from '../ui/Drawer'
 import Modal from '../ui/Modal'
 import Button from '../ui/Button'
@@ -11,6 +11,7 @@ export interface LibraryDrawerProps {
   onClose: () => void
   novels: Novel[]
   onSelectNovel: (novel: Novel) => void
+  onLoadNovelDetail: (novelId: string) => Promise<NovelDetail>
   onUpdateNovel: (
     novelId: string,
     title: string,
@@ -28,13 +29,18 @@ export default function LibraryDrawer({
   onClose,
   novels,
   onSelectNovel,
+  onLoadNovelDetail,
   onUpdateNovel,
   onDeleteNovel,
   onReorderNovels,
   onDownloadNovel,
 }: LibraryDrawerProps) {
-  const [editingNovel, setEditingNovel] = useState<Novel | null>(null)
+  const [editingNovel, setEditingNovel] = useState<NovelDetail | null>(null)
   const [deletingNovel, setDeletingNovel] = useState<Novel | null>(null)
+
+  const handleEdit = async (novel: Novel) => {
+    setEditingNovel(await onLoadNovelDetail(novel.id))
+  }
 
   return (
     <>
@@ -42,7 +48,7 @@ export default function LibraryDrawer({
         <LibraryList
           novels={novels}
           onSelect={onSelectNovel}
-          onEdit={setEditingNovel}
+          onEdit={(novel) => void handleEdit(novel)}
           onDownload={onDownloadNovel}
           onDelete={setDeletingNovel}
           onReorder={onReorderNovels}

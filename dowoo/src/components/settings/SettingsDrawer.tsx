@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { ApiSettings, ThemePreset, ThemeSettings } from '../../types/settings'
+import type { MaskedApiKey } from '../../api/settings'
+import type { ThemePreset, ThemeSettings } from '../../types/settings'
 import Drawer from '../ui/Drawer'
 import Tabs from '../ui/Tabs'
 import ApiSettingsPanel from './ApiSettingsPanel'
@@ -8,8 +9,11 @@ import ThemeSettingsPanel from './ThemeSettingsPanel'
 export interface SettingsDrawerProps {
   isOpen: boolean
   onClose: () => void
-  apiSettings: ApiSettings
-  onApiSettingsChange: (settings: ApiSettings) => void
+  model: string
+  apiKeys: MaskedApiKey[]
+  onModelChange: (model: string) => void
+  onAddApiKey: (key: string) => void
+  onDeleteApiKey: (keyId: string) => void
   theme: ThemeSettings
   onThemeChange: (theme: ThemeSettings) => void
   customThemePresets: ThemePreset[]
@@ -20,8 +24,11 @@ export interface SettingsDrawerProps {
 export default function SettingsDrawer({
   isOpen,
   onClose,
-  apiSettings,
-  onApiSettingsChange,
+  model,
+  apiKeys,
+  onModelChange,
+  onAddApiKey,
+  onDeleteApiKey,
   theme,
   onThemeChange,
   customThemePresets,
@@ -39,7 +46,15 @@ export default function SettingsDrawer({
           {
             id: 'api',
             label: 'API',
-            content: <ApiSettingsPanel apiSettings={apiSettings} onChange={onApiSettingsChange} />,
+            content: (
+              <ApiSettingsPanel
+                model={model}
+                apiKeys={apiKeys}
+                onModelChange={onModelChange}
+                onAddKey={onAddApiKey}
+                onDeleteKey={onDeleteApiKey}
+              />
+            ),
           },
           {
             id: 'theme',

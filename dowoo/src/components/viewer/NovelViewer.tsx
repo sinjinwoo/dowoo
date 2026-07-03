@@ -2,7 +2,6 @@ import type { Chapter } from '../../types/novel'
 import type { ThemeSettings } from '../../types/settings'
 import ViewerToolbar from './ViewerToolbar'
 import ViewerContent from './ViewerContent'
-import TranslationProgressBar from './TranslationProgressBar'
 
 export interface NovelViewerProps {
   chapter: Chapter
@@ -27,8 +26,8 @@ export default function NovelViewer({
         theme={theme}
         displayedTranslatedText={displayedTranslatedText}
         isTranslating={isTranslating}
+        progress={progress}
       />
-      <TranslationProgressBar progress={progress} />
     </div>
   )
 }

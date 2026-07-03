@@ -1,3 +1,10 @@
+export interface ToggleSwitchProps {
+  label?: string
+  checked: boolean
+  onChange: (checked: boolean) => void
+  disabled?: boolean
+}
+
 export default function ToggleSwitch({
   label,
   checked,

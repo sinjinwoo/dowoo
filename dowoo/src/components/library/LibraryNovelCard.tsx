@@ -32,7 +32,7 @@ export default function LibraryNovelCard({
     <div
       ref={setNodeRef}
       style={style}
-      className="relative flex gap-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900"
+      className="relative flex w-full min-w-0 gap-3 overflow-hidden rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900"
     >
       <button
         type="button"
@@ -76,9 +76,7 @@ export default function LibraryNovelCard({
         >
           {novel.title}
         </button>
-        <p className="truncate text-xs text-gray-400">
-          {novel.chapters[novel.lastReadChapterIndex]?.title}
-        </p>
+        <p className="truncate text-xs text-gray-400">{novel.lastReadChapterTitle}</p>
         <div className="mt-2 flex gap-1">
           <Button variant="ghost" size="sm" onClick={onEdit}>
             편집

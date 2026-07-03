@@ -173,10 +173,15 @@ public class NovelService {
 
     private NovelSummaryResponse toSummary(Novel novel) {
         long chapterCount = chapterRepository.countByNovelId(novel.getId());
+        String lastReadChapterTitle = novel.getLastReadChapterIndex() != null
+                ? chapterRepository.findByNovelIdAndChapterIndex(novel.getId(), novel.getLastReadChapterIndex())
+                        .map(Chapter::getTitle)
+                        .orElse(null)
+                : null;
         return new NovelSummaryResponse(
                 novel.getId(), novel.getTitle(), novel.getOriginalTitle(), novel.getCoverUrl(),
                 novel.getSourceUrl(), novel.getSiteName(), chapterCount,
-                novel.getLastReadChapterIndex(), novel.getOrderIndex(), novel.getUpdatedAt());
+                novel.getLastReadChapterIndex(), lastReadChapterTitle, novel.getOrderIndex(), novel.getUpdatedAt());
     }
 
     private NovelDetailResponse toDetail(Novel novel, NovelPrompt prompt, List<Chapter> chapters) {
