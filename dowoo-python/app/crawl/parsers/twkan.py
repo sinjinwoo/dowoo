@@ -26,6 +26,7 @@ def parse_twkan(html: str) -> dict:
 
     return {
         "title": bookinfo["chaptername"],
+        "book_title": bookinfo["articlename"] or None,
         "content": text,
         "prev": bookinfo["previewPage"],
         "next": bookinfo["nextPage"],

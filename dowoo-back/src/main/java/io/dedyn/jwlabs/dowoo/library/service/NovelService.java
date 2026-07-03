@@ -18,6 +18,7 @@ import io.dedyn.jwlabs.dowoo.library.entity.Novel;
 import io.dedyn.jwlabs.dowoo.library.entity.NovelPrompt;
 import io.dedyn.jwlabs.dowoo.library.repository.NovelPromptRepository;
 import io.dedyn.jwlabs.dowoo.library.repository.NovelRepository;
+import io.dedyn.jwlabs.dowoo.library.support.DefaultPrompts;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -71,7 +72,8 @@ public class NovelService {
 
         NovelPrompt prompt = new NovelPrompt();
         prompt.setNovel(novel);
-        prompt.setSystemPrompt(request.systemPrompt());
+        prompt.setSystemPrompt(StringUtils.hasText(request.systemPrompt())
+                ? request.systemPrompt() : DefaultPrompts.SYSTEM_PROMPT);
         prompt.setTranslationNote(request.translationNote());
         prompt.setUpdatedAt(now);
         novelPromptRepository.save(prompt);
