@@ -1,0 +1,5 @@
+fastapi
+uvicorn[standard]
+beautifulsoup4
+google-genai
+curl_cffi

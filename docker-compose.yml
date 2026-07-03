@@ -34,10 +34,27 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      ai-api:
+        condition: service_healthy
     ports:
       - "8080:8080"
     networks:
       - dowoo-net
+
+  ai-api:
+    build:
+      context: ./dowoo-python
+    restart: unless-stopped
+    environment:
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-dev-internal-token}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - dowoo-net
+    # 의도적으로 ports를 노출하지 않음 - core-api만 dowoo-net 내부에서 접근 가능 (api-spec.md §0.2)
 
 networks:
   dowoo-net:

@@ -6,6 +6,7 @@ import io.dedyn.jwlabs.dowoo.auth.service.CurrentUserProvider;
 import io.dedyn.jwlabs.dowoo.book.entity.Chapter;
 import io.dedyn.jwlabs.dowoo.book.repository.ChapterRepository;
 import io.dedyn.jwlabs.dowoo.common.exception.ApiException;
+import io.dedyn.jwlabs.dowoo.common.util.UrlValidator;
 import io.dedyn.jwlabs.dowoo.library.dto.ChapterSummaryResponse;
 import io.dedyn.jwlabs.dowoo.library.dto.LastReadRequest;
 import io.dedyn.jwlabs.dowoo.library.dto.NovelCreateRequest;
@@ -23,7 +24,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.net.URI;
 import java.time.OffsetDateTime;
 import java.util.HashSet;
 import java.util.List;
@@ -51,7 +51,7 @@ public class NovelService {
     @Transactional
     public NovelDetailResponse create(NovelCreateRequest request) {
         UUID userId = currentUserProvider.currentUserId();
-        validateUrl(request.sourceUrl());
+        UrlValidator.requireHttpUrl(request.sourceUrl());
         if (novelRepository.existsByUserIdAndSourceUrl(userId, request.sourceUrl())) {
             throw new ApiException(HttpStatus.CONFLICT, "DUPLICATE_NOVEL", "이미 서재에 등록된 소설입니다.");
         }
@@ -169,17 +169,6 @@ public class NovelService {
         UUID userId = currentUserProvider.currentUserId();
         return novelRepository.findByIdAndUserId(novelId, userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "소설을 찾을 수 없습니다."));
-    }
-
-    private void validateUrl(String url) {
-        try {
-            URI uri = new URI(url);
-            if (uri.getScheme() == null || !(uri.getScheme().equals("http") || uri.getScheme().equals("https"))) {
-                throw new IllegalArgumentException();
-            }
-        } catch (Exception e) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "sourceUrl이 올바른 URL 형식이 아닙니다.");
-        }
     }
 
     private NovelSummaryResponse toSummary(Novel novel) {

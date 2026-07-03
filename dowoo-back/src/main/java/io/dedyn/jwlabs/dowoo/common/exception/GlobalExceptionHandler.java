@@ -29,7 +29,8 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiResponse<Void>> handleUnreadableBody(HttpMessageNotReadableException ex) {
         return ResponseEntity.badRequest()
-                .body(ApiResponse.failure(400, "VALIDATION_ERROR", "요청 본문을 읽을 수 없습니다.", null));
+                .body(ApiResponse.failure(400, "VALIDATION_ERROR", "요청 본문을 읽을 수 없습니다.",
+                        ex.getMostSpecificCause().getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
