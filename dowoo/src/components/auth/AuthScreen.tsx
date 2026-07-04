@@ -62,10 +62,10 @@ export default function AuthScreen() {
     <div className="flex min-h-screen items-center justify-center bg-chrome px-4 dark:bg-gray-950">
       <div className="w-full max-w-sm rounded-xl bg-chrome p-6 shadow-xl ring-1 ring-purple-100 dark:bg-gray-900 dark:ring-0">
         {mode === 'login' ? (
-          <>
-            <img src="/logo.svg" alt="dowoo" className="mx-auto mb-3 h-12 w-auto dark:invert" />
-            <h1 className="mb-6 text-center text-xl font-semibold text-gray-900 dark:text-gray-100">로그인</h1>
-          </>
+          <div className="mb-6 flex items-center justify-center gap-2">
+            <img src="/logo.svg" alt="" className="h-14 w-auto" />
+            <h1 className="text-3xl font-semibold text-accent">dowoo</h1>
+          </div>
         ) : (
           <h1 className="mb-6 text-center text-xl font-semibold text-gray-900 dark:text-gray-100">
             회원가입
