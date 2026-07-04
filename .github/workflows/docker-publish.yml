@@ -4,18 +4,14 @@ on:
   push:
     tags:
       - 'v*.*.*'
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 jobs:
   build-and-push:
-    # 💡 [추가] 수동 실행(workflow_dispatch)이거나, 태그의 베이스 브랜치가 main일 때만 실행
-    if: |
-      github.event_name == 'workflow_dispatch' || 
-      github.event.base_ref == 'refs/heads/main'
-    
     runs-on: ubuntu-latest
     permissions:
       contents: read
+
     strategy:
       matrix:
         include:
@@ -25,6 +21,7 @@ jobs:
           - image: sjw0066/dowoo-ai
             context: ./dowoo-python
             dockerfile: dowoo-python/Dockerfile
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
