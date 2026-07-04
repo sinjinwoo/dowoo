@@ -8,7 +8,6 @@ import LibraryDrawer from './components/library/LibraryDrawer'
 import ErrorModal from './components/ui/ErrorModal'
 import AuthScreen from './components/auth/AuthScreen'
 import { useAuth } from './auth/AuthContext'
-import { API_BASE } from './api/client'
 import {
   listNovels,
   getNovelDetail,
@@ -16,7 +15,7 @@ import {
   deleteNovel,
   reorderNovels,
   updateLastRead,
-  exportNovelUrl,
+  downloadNovelExport,
   readSource,
   crawlUrl,
 } from './api/novels'
@@ -364,10 +363,15 @@ function App() {
     await reorderNovels(orderedIds)
   }
 
-  const handleDownloadNovel = (novel: Novel) => {
-    const link = document.createElement('a')
-    link.href = `${API_BASE}${exportNovelUrl(novel.id)}`
-    link.click()
+  const handleDownloadNovel = async (novel: Novel) => {
+    try {
+      await downloadNovelExport(novel.id)
+    } catch (error) {
+      setTranslationError({
+        type: 'crawling',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   if (authStatus === 'loading') {
@@ -419,6 +423,7 @@ function App() {
           <ChapterNavBar
             onPrevChapter={() => void handleNavigateChapter('prev')}
             onNextChapter={() => void handleNavigateChapter('next')}
+            fontColor={theme.fontColor}
           />
         </>
       ) : activeNovelDetail ? (

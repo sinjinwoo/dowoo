@@ -109,4 +109,43 @@ export const apiPut = <T,>(path: string, body: unknown) =>
 
 export const apiDelete = (path: string) => request<void>(path, { method: 'DELETE' })
 
+function parseContentDispositionFilename(header: string | null): string | null {
+  if (!header) return null
+  const match = /filename\*=UTF-8''([^;]+)/i.exec(header)
+  if (!match) return null
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    return null
+  }
+}
+
+// 다운로드는 JSON 응답이 아니라 파일(Blob)이라 request()의 JSON 파싱 경로를 탈 수 없다 -
+// 401 재시도 등 인증 로직은 동일하게 유지하면서 응답만 Blob으로 받는 별도 경로가 필요하다.
+export async function apiDownload(path: string, isRetry = false): Promise<{ blob: Blob; filename: string | null }> {
+  const response = await rawRequest(path)
+
+  if (response.status === 401 && !isRetry) {
+    const newToken = await refreshAccessToken()
+    if (newToken) {
+      return apiDownload(path, true)
+    }
+    onUnauthorized?.()
+    throw new ApiRequestError('UNAUTHORIZED', '로그인이 필요합니다.')
+  }
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as ApiEnvelope<never> | null
+    throw new ApiRequestError(
+      body?.error?.code ?? 'UNKNOWN',
+      body?.message ?? `요청에 실패했습니다. (${response.status})`
+    )
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: parseContentDispositionFilename(response.headers.get('Content-Disposition')),
+  }
+}
+
 export { API_BASE }
