@@ -12,6 +12,7 @@ export interface TopBarProps {
   hidden: boolean
   isTranslating: boolean
   onCancelTranslation: () => void
+  onLogout: () => void
 }
 
 export default function TopBar({
@@ -23,13 +24,14 @@ export default function TopBar({
   hidden,
   isTranslating,
   onCancelTranslation,
+  onLogout,
 }: TopBarProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 
   return (
     <>
       <header
-        className={`fixed inset-x-0 top-0 z-40 border-b border-gray-200 bg-white shadow-sm transition-transform duration-300 dark:border-gray-800 dark:bg-gray-900 ${
+        className={`fixed inset-x-0 top-0 z-40 border-b border-gray-200 bg-chrome shadow-sm transition-transform duration-300 dark:border-gray-800 dark:bg-gray-900 ${
           hidden ? '-translate-y-full' : 'translate-y-0'
         }`}
       >
@@ -52,6 +54,10 @@ export default function TopBar({
 
             <Button variant="secondary" className="px-4 py-2 shadow-sm" onClick={onOpenSettings}>
               설정
+            </Button>
+
+            <Button variant="ghost" className="px-3 py-2" onClick={onLogout}>
+              로그아웃
             </Button>
           </div>
 
@@ -96,7 +102,7 @@ export default function TopBar({
 
         {/* 모바일 메뉴 - 좌측 정렬된 텍스트 링크 형태 */}
         {isMenuOpen && (
-          <div className="flex flex-col items-start gap-1 border-t border-gray-200 bg-white px-4 py-2 sm:hidden dark:border-gray-800 dark:bg-gray-900">
+          <div className="flex flex-col items-start gap-1 border-t border-gray-200 bg-chrome px-4 py-2 sm:hidden dark:border-gray-800 dark:bg-gray-900">
             <button
               type="button"
               onClick={() => {
@@ -117,6 +123,17 @@ export default function TopBar({
               className="py-1 text-sm text-gray-700 hover:text-accent dark:text-gray-200"
             >
               설정
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                onLogout()
+                setIsMenuOpen(false)
+              }}
+              className="py-1 text-sm text-gray-700 hover:text-accent dark:text-gray-200"
+            >
+              로그아웃
             </button>
           </div>
         )}

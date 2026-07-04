@@ -16,11 +16,73 @@ export class ApiRequestError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+let accessToken: string | null = null
+let onUnauthorized: (() => void) | null = null
+
+// refresh/logout는 쿠키만으로 인증되는 요청이라 서버가 이 헤더를 CSRF 방어로 요구한다.
+// 단순 폼 기반 CSRF는 커스텀 헤더를 붙일 수 없고, 다른 오리진의 fetch/XHR은 이 헤더 때문에
+// CORS preflight를 거치게 되어 허용되지 않은 오리진이면 브라우저가 요청을 막는다.
+const CSRF_HEADER_NAME = 'X-Requested-With'
+const CSRF_HEADER_VALUE = 'XMLHttpRequest'
+
+export function setAccessToken(token: string | null) {
+  accessToken = token
+}
+
+export function getAccessToken(): string | null {
+  return accessToken
+}
+
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  onUnauthorized = handler
+}
+
+export function notifyUnauthorized() {
+  onUnauthorized?.()
+}
+
+export async function refreshAccessToken(): Promise<string | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE },
+    })
+    const body = (await response.json().catch(() => null)) as ApiEnvelope<{ accessToken: string }> | null
+    if (!response.ok || !body?.data) return null
+    accessToken = body.data.accessToken
+    return accessToken
+  } catch {
+    return null
+  }
+}
+
+async function rawRequest(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      ...(init?.headers ?? {}),
+    },
   })
+}
+
+const AUTH_PATH_PREFIX = '/api/v1/auth/'
+
+async function request<T>(path: string, init?: RequestInit, isRetry = false): Promise<T> {
+  const response = await rawRequest(path, init)
+
+  if (response.status === 401 && !isRetry && !path.startsWith(AUTH_PATH_PREFIX)) {
+    const newToken = await refreshAccessToken()
+    if (newToken) {
+      return request<T>(path, init, true)
+    }
+    onUnauthorized?.()
+    throw new ApiRequestError('UNAUTHORIZED', '로그인이 필요합니다.')
+  }
 
   const body = (await response.json().catch(() => null)) as ApiEnvelope<T> | null
 

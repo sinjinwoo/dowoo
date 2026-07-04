@@ -1,0 +1,14 @@
+.git
+.github
+.claude
+docs
+
+dowoo/node_modules
+dowoo/dist
+
+dowoo-back/.gradle
+dowoo-back/build
+dowoo-back/bin
+
+dowoo-python/__pycache__
+dowoo-python/.venv

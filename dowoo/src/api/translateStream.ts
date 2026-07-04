@@ -1,4 +1,4 @@
-import { API_BASE } from './client'
+import { API_BASE, getAccessToken, notifyUnauthorized, refreshAccessToken } from './client'
 
 export class TranslationAbortedError extends Error {
   constructor() {
@@ -29,12 +29,27 @@ export async function translateStream({
   onLine,
   onProgress,
 }: TranslateStreamArgs): Promise<string> {
+  const streamUrl = `${API_BASE}/api/v1/novels/${novelId}/chapters/${chapterId}/translate/stream`
+
+  const doFetch = (token: string | null) =>
+    fetch(streamUrl, {
+      method: 'POST',
+      signal,
+      credentials: 'include',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
+
   let response: Response
   try {
-    response = await fetch(
-      `${API_BASE}/api/v1/novels/${novelId}/chapters/${chapterId}/translate/stream`,
-      { method: 'POST', signal }
-    )
+    response = await doFetch(getAccessToken())
+    if (response.status === 401) {
+      const newToken = await refreshAccessToken()
+      if (!newToken) {
+        notifyUnauthorized()
+        throw new Error('로그인이 필요합니다.')
+      }
+      response = await doFetch(newToken)
+    }
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw new TranslationAbortedError()
@@ -44,6 +59,7 @@ export async function translateStream({
 
   if (!response.ok || !response.body) {
     const body = await response.json().catch(() => null)
+    if (response.status === 401) notifyUnauthorized()
     throw new Error(body?.message ?? '번역 요청에 실패했습니다.')
   }
 

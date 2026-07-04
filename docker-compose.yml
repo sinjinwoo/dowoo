@@ -20,7 +20,8 @@ services:
 
   core-api:
     build:
-      context: ./dowoo-back
+      context: .
+      dockerfile: dowoo-back/Dockerfile
     restart: unless-stopped
     environment:
       DB_HOST: postgres
@@ -31,6 +32,14 @@ services:
       INTERNAL_TOKEN: ${INTERNAL_TOKEN:-dev-internal-token}
       AI_API_BASE_URL: http://ai-api:8000
       API_KEY_ENCRYPTION_SECRET: ${API_KEY_ENCRYPTION_SECRET:-0123456789abcdef0123456789abcdef}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-jwt-secret-change-me-0123456789}
+      JWT_ACCESS_TOKEN_VALIDITY_SECONDS: ${JWT_ACCESS_TOKEN_VALIDITY_SECONDS:-1800}
+      REFRESH_TOKEN_VALIDITY_DAYS: ${REFRESH_TOKEN_VALIDITY_DAYS:-14}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      AI_API_CONNECT_TIMEOUT_SECONDS: ${AI_API_CONNECT_TIMEOUT_SECONDS:-10}
+      CRAWL_CONNECT_TIMEOUT_SECONDS: ${CRAWL_CONNECT_TIMEOUT_SECONDS:-10}
+      CRAWL_READ_TIMEOUT_SECONDS: ${CRAWL_READ_TIMEOUT_SECONDS:-180}
+      TRANSLATE_IDLE_TIMEOUT_SECONDS: ${TRANSLATE_IDLE_TIMEOUT_SECONDS:-90}
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,7 +63,7 @@ services:
       retries: 10
     networks:
       - dowoo-net
-    # 의도적으로 ports를 노출하지 않음 - core-api만 dowoo-net 내부에서 접근 가능 (api-spec.md §0.2)
+
 
 networks:
   dowoo-net:

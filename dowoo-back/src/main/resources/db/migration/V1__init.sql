@@ -1,13 +1,12 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 CREATE TABLE users (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email           VARCHAR(255) NOT NULL,
-    oauth_provider  VARCHAR(32)  NOT NULL,
-    oauth_id        VARCHAR(255) NOT NULL,
-    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    withdrawn_at    TIMESTAMPTZ,
-    CONSTRAINT uq_users_oauth UNIQUE (oauth_provider, oauth_id)
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username       VARCHAR(50)  NOT NULL,
+    password_hash  VARCHAR(255) NOT NULL,
+    created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    withdrawn_at   TIMESTAMPTZ,
+    CONSTRAINT uq_users_username UNIQUE (username)
 );
 
 CREATE TABLE refresh_tokens (
