@@ -20,6 +20,8 @@
 | [14-translate-stream-missing-auth-header.md](14-translate-stream-missing-auth-header.md) | 로그인 후 "불러오기"는 되는데 번역 스트림만 401 |
 | [15-chapter-nav-index-vs-prevnext-url.md](15-chapter-nav-index-vs-prevnext-url.md) | 이전편/다음편 버튼이 작동하지 않음 |
 | [16-translation-lost-on-stream-interrupt.md](16-translation-lost-on-stream-interrupt.md) | 번역 중지 후 돌아오면 진행 상황이 사라지고 재번역됨 |
+| [17-sse-close-exception-after-successful-done.md](17-sse-close-exception-after-successful-done.md) | 번역이 성공적으로 끝났는데도 네트워크 에러 모달이 뜸 |
+| [18-idle-timeout-too-short-for-long-chapters.md](18-idle-timeout-too-short-for-long-chapters.md) | 본문이 매우 길면 번역이 지연 에러(TRANSLATE_TIMEOUT)로 끊김 |
 
 공통적으로 얻은 교훈:
 
@@ -34,3 +36,4 @@
 - **인증을 나중에 추가하는 리팩터링 때는 공용 API 클라이언트를 안 거치고 직접 `fetch`하는 코드가 없는지 grep으로 확인할 것.** SSE/스트리밍처럼 예외적으로 raw fetch를 쓰는 코드가 사각지대가 되기 쉽다. (14)
 - **타입에 필드가 존재한다고 해서 UI가 그 필드를 실제로 쓰고 있다고 가정하지 말 것.** 스캐폴딩 단계에서 타입만 먼저 정의되고 배선은 나중으로 미뤄졌을 수 있다. (15)
 - **스트리밍 응답을 다루는 서버 코드는 정상 종료 경로뿐 아니라 클라이언트가 언제든 연결을 끊을 수 있다는 전제로 모든 종료 경로(에러/타임아웃/연결 끊김)의 부분 결과 처리를 설계할 것.** (16)
+- **try-with-resources의 암묵적 `close()`가 던지는 예외는 같은 try 블록의 `catch`에 잡힌다는 걸 기억할 것.** "이미 성공적으로 끝나고 반환하는" 경로에서 리소스 정리 실패가 성공 처리 자체를 덮어쓰지 않도록, 정상 처리와 리소스 정리의 예외 범위를 분리한다. (17)

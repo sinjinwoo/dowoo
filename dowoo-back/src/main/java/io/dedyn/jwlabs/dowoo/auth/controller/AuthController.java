@@ -6,12 +6,12 @@ import io.dedyn.jwlabs.dowoo.auth.dto.LoginRequest;
 import io.dedyn.jwlabs.dowoo.auth.dto.SignupRequest;
 import io.dedyn.jwlabs.dowoo.auth.dto.UsernameAvailabilityResponse;
 import io.dedyn.jwlabs.dowoo.auth.service.AuthService;
+import io.dedyn.jwlabs.dowoo.auth.service.RefreshTokenService;
 import io.dedyn.jwlabs.dowoo.common.exception.ApiException;
 import io.dedyn.jwlabs.dowoo.common.response.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
@@ -40,12 +40,7 @@ public class AuthController {
     private static final String CSRF_HEADER_VALUE = "XMLHttpRequest";
 
     private final AuthService authService;
-
-    @Value("${app.cookie-secure}")
-    private boolean cookieSecure;
-
-    @Value("${app.refresh-token-validity-days}")
-    private long refreshTokenValidityDays;
+    private final RefreshTokenService refreshTokenService;
 
     @GetMapping("/check-username")
     public ResponseEntity<ApiResponse<UsernameAvailabilityResponse>> checkUsername(@RequestParam String username) {
@@ -53,18 +48,20 @@ public class AuthController {
     }
 
     @PostMapping("/signup")
-    public ResponseEntity<ApiResponse<AuthResponse>> signup(@Valid @RequestBody SignupRequest request) {
+    public ResponseEntity<ApiResponse<AuthResponse>> signup(
+            @Valid @RequestBody SignupRequest request, HttpServletRequest httpRequest) {
         AuthService.TokenIssueResult result = authService.signup(request);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .header(HttpHeaders.SET_COOKIE, refreshCookie(result.rawRefreshToken()).toString())
+                .header(HttpHeaders.SET_COOKIE, refreshCookie(result.rawRefreshToken(), httpRequest).toString())
                 .body(ApiResponse.success(201, result.authResponse(), "회원가입에 성공했습니다."));
     }
 
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequest request) {
+    public ResponseEntity<ApiResponse<AuthResponse>> login(
+            @Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
         AuthService.TokenIssueResult result = authService.login(request);
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, refreshCookie(result.rawRefreshToken()).toString())
+                .header(HttpHeaders.SET_COOKIE, refreshCookie(result.rawRefreshToken(), httpRequest).toString())
                 .body(ApiResponse.success(200, result.authResponse(), "로그인에 성공했습니다."));
     }
 
@@ -75,7 +72,7 @@ public class AuthController {
         requireCsrfHeader(request);
         AuthService.RefreshResult result = authService.refresh(refreshToken);
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, refreshCookie(result.rawRefreshToken()).toString())
+                .header(HttpHeaders.SET_COOKIE, refreshCookie(result.rawRefreshToken(), request).toString())
                 .body(ApiResponse.success(200, result.accessTokenResponse(), "토큰이 재발급되었습니다."));
     }
 
@@ -86,7 +83,7 @@ public class AuthController {
         requireCsrfHeader(request);
         authService.logout(refreshToken);
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, expiredRefreshCookie().toString())
+                .header(HttpHeaders.SET_COOKIE, expiredRefreshCookie(request).toString())
                 .body(ApiResponse.<Void>success(200, null, "로그아웃되었습니다."));
     }
 
@@ -97,20 +94,20 @@ public class AuthController {
         }
     }
 
-    private ResponseCookie refreshCookie(String value) {
+    private ResponseCookie refreshCookie(String value, HttpServletRequest request) {
         return ResponseCookie.from(REFRESH_TOKEN_COOKIE, value)
                 .httpOnly(true)
-                .secure(cookieSecure)
+                .secure(request.isSecure())
                 .sameSite("Lax")
                 .path("/api/v1/auth")
-                .maxAge(refreshTokenValidityDays * 24 * 60 * 60)
+                .maxAge(refreshTokenService.validityDays() * 24 * 60 * 60)
                 .build();
     }
 
-    private ResponseCookie expiredRefreshCookie() {
+    private ResponseCookie expiredRefreshCookie(HttpServletRequest request) {
         return ResponseCookie.from(REFRESH_TOKEN_COOKIE, "")
                 .httpOnly(true)
-                .secure(cookieSecure)
+                .secure(request.isSecure())
                 .sameSite("Lax")
                 .path("/api/v1/auth")
                 .maxAge(0)

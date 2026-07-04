@@ -5,7 +5,6 @@ import io.dedyn.jwlabs.dowoo.auth.entity.User;
 import io.dedyn.jwlabs.dowoo.auth.repository.RefreshTokenRepository;
 import io.dedyn.jwlabs.dowoo.common.exception.ApiException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,11 +20,15 @@ import java.util.Base64;
 @RequiredArgsConstructor
 public class RefreshTokenService {
 
+    // 로그인 정책(토큰 만료 시간)은 애플리케이션 정책이라 사용자가 배포 시 바꿀 값이 아니므로 고정한다.
+    private static final long REFRESH_TOKEN_VALIDITY_DAYS = 14;
+
     private final RefreshTokenRepository refreshTokenRepository;
     private final SecureRandom secureRandom = new SecureRandom();
 
-    @Value("${app.refresh-token-validity-days}")
-    private long refreshTokenValidityDays;
+    public long validityDays() {
+        return REFRESH_TOKEN_VALIDITY_DAYS;
+    }
 
     /** @return 쿠키에 담을 원문 토큰 값 (DB에는 해시만 저장됨) */
     @Transactional
@@ -34,7 +37,7 @@ public class RefreshTokenService {
         RefreshToken entity = new RefreshToken();
         entity.setUser(user);
         entity.setTokenHash(hash(rawToken));
-        entity.setExpiresAt(OffsetDateTime.now().plusDays(refreshTokenValidityDays));
+        entity.setExpiresAt(OffsetDateTime.now().plusDays(REFRESH_TOKEN_VALIDITY_DAYS));
         entity.setCreatedAt(OffsetDateTime.now());
         refreshTokenRepository.save(entity);
         return rawToken;

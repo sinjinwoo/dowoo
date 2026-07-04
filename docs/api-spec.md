@@ -39,8 +39,8 @@
 
 ### 0.4 인증 방식
 
-- Access Token: JWT(HS256, Core API가 자체 발급/검증하는 대칭키 — OAuth2 IdP가 없어 비대칭키 공개키 배포가 필요 없으므로 단순한 HS256을 사용), `Authorization: Bearer {accessToken}` 헤더로 전달. 만료 30분(`app.jwt-access-token-validity-seconds`). **검증은 Core API에서만 수행**한다.
-- Refresh Token: `httpOnly`, `SameSite=Lax` 쿠키(`refresh_token`, path=`/api/v1/auth`)로 전달. 만료 14일(`app.refresh-token-validity-days`). JS에서 접근 불가. 원문 값은 쿠키에만 담기고 DB에는 SHA-256 해시만 저장되며, `/auth/refresh` 호출 시마다 회전(rotate)된다. 운영 환경(HTTPS)에서는 `COOKIE_SECURE=true`로 `Secure` 속성을 추가해야 한다.
+- Access Token: JWT(HS256, Core API가 자체 발급/검증하는 대칭키 — OAuth2 IdP가 없어 비대칭키 공개키 배포가 필요 없으므로 단순한 HS256을 사용), `Authorization: Bearer {accessToken}` 헤더로 전달. 만료 30분 고정(`JwtTokenProvider`). **검증은 Core API에서만 수행**한다.
+- Refresh Token: `httpOnly`, `SameSite=Lax` 쿠키(`refresh_token`, path=`/api/v1/auth`)로 전달. 만료 14일 고정(`RefreshTokenService`). JS에서 접근 불가. 원문 값은 쿠키에만 담기고 DB에는 SHA-256 해시만 저장되며, `/auth/refresh` 호출 시마다 회전(rotate)된다. `Secure` 속성은 사용자가 설정할 필요 없이 요청이 HTTPS로 왔는지(`request.isSecure()`, 리버스 프록시의 `X-Forwarded-Proto` 헤더 기준)를 보고 매 요청마다 자동으로 결정된다.
 - AI API는 JWT를 전혀 검증하지 않는다 (사용자 인증 개념 자체가 없음). 대신 Core API → AI API 요청에 고정 서비스 시크릿인 `X-Internal-Token` 헤더를 실어 보내고, AI API는 이 값이 일치하는지만 확인한다. 자세한 내부 엔드포인트는 9장 참고.
 
 ### 0.5 공통 에러 코드
@@ -140,7 +140,7 @@
 }
 ```
 
-응답 헤더에 `Set-Cookie: refresh_token=...; HttpOnly; SameSite=Lax; Max-Age=1209600` 포함(운영 HTTPS 배포 시 `Secure` 속성 추가, `COOKIE_SECURE=true`).
+응답 헤더에 `Set-Cookie: refresh_token=...; HttpOnly; SameSite=Lax; Max-Age=1209600` 포함(HTTPS로 들어온 요청이면 `Secure` 속성이 자동으로 붙는다, 0.4 참고).
 
 **🔥 ERROR**
 
@@ -674,7 +674,7 @@
 | `UPSTREAM_ERROR` | 502 | Gemini 서버 5xx |
 | `AI_API_UNAVAILABLE` | 503 | Core API가 AI API 내부 호출(9.2)에 실패 (네트워크/타임아웃) |
 
-**타임아웃**: 번역 스트림은 긴 챕터일수록 정상적으로 몇 분씩 걸릴 수 있어 전체 응답 시간에는 상한을 두지 않는다. 대신 Core API가 "마지막으로 SSE 이벤트를 받은 이후 경과 시간"을 감시하다가 `app.translate-idle-timeout-seconds`(기본 90초, env `TRANSLATE_IDLE_TIMEOUT_SECONDS`)를 넘기면 AI API와의 연결을 강제로 끊고 `error` 이벤트(`{ "code": "TRANSLATE_TIMEOUT", "message": "번역 응답이 지연되어 중단되었습니다. 잠시 후 다시 시도해주세요." }`)로 스트림을 마무리한다. Core API → AI API 커넥션 연결 자체의 타임아웃은 `app.ai-api-connect-timeout-seconds`(기본 10초)로 별도 설정된다. 크롤링(6.1/9.1) 릴레이는 read 타임아웃 `app.crawl-read-timeout-seconds`(기본 180초, env `CRAWL_READ_TIMEOUT_SECONDS`)를 쓰는데, AI API의 크롤링 재시도 로직(최대 5회 요청 x 20초 + 403 백오프)이 끝나기 전에 Core API가 먼저 끊어버리지 않도록 그보다 넉넉하게 잡혀 있다.
+**타임아웃**: 번역 스트림은 긴 챕터일수록 정상적으로 몇 분씩 걸릴 수 있어 전체 응답 시간에는 상한을 두지 않는다. 대신 Core API가 "마지막으로 SSE 이벤트를 받은 이후 경과 시간"을 감시하다가 유휴(idle) 300초를 넘기면 AI API와의 연결을 강제로 끊고 `error` 이벤트(`{ "code": "TRANSLATE_TIMEOUT", "message": "번역 응답이 지연되어 중단되었습니다. 잠시 후 다시 시도해주세요." }`)로 스트림을 마무리한다(`TranslateService.IDLE_TIMEOUT`). 본문이 아주 길면 Gemini가 첫 줄을 스트리밍하기 전까지 하트비트 없이 "생각"만 하는 구간이 몇 분씩 걸릴 수 있어 넉넉하게 잡은 값이다(`docs/troubleshooting/18` 참고). Core API → AI API 커넥션 연결 자체의 타임아웃은 10초로 고정돼 있다. 크롤링(6.1/9.1) 릴레이는 read 타임아웃 180초를 쓰는데(`HttpCrawlClient.READ_TIMEOUT`), AI API의 크롤링 재시도 로직(최대 5회 요청 x 20초 + 403 백오프)이 끝나기 전에 Core API가 먼저 끊어버리지 않도록 그보다 넉넉하게 잡혀 있다. 이 값들은 애플리케이션 내부 튜닝값이라 코드에 고정돼 있고 배포 시 환경변수로 바꿀 수 없다.
 
 키 로테이션 정책, `{{memo}}` 치환 등 실제 번역 동작의 세부 사항은 9.2(AI API가 수행하는 실제 처리)에 정리되어 있다.
 

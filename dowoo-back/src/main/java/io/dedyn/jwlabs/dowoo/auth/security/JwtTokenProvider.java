@@ -15,18 +15,17 @@ import java.util.UUID;
 @Component
 public class JwtTokenProvider {
 
-    private final SecretKey key;
-    private final long accessTokenValiditySeconds;
+    // 로그인 정책(토큰 만료 시간)은 애플리케이션 정책이라 사용자가 배포 시 바꿀 값이 아니므로 고정한다.
+    private static final long ACCESS_TOKEN_VALIDITY_SECONDS = 1800;
 
-    public JwtTokenProvider(
-            @Value("${app.jwt-secret}") String secret,
-            @Value("${app.jwt-access-token-validity-seconds}") long accessTokenValiditySeconds) {
+    private final SecretKey key;
+
+    public JwtTokenProvider(@Value("${app.jwt-secret}") String secret) {
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
-        this.accessTokenValiditySeconds = accessTokenValiditySeconds;
     }
 
     public long accessTokenValiditySeconds() {
-        return accessTokenValiditySeconds;
+        return ACCESS_TOKEN_VALIDITY_SECONDS;
     }
 
     public String generateAccessToken(UUID userId) {
@@ -34,7 +33,7 @@ public class JwtTokenProvider {
         return Jwts.builder()
                 .subject(userId.toString())
                 .issuedAt(Date.from(now))
-                .expiration(Date.from(now.plusSeconds(accessTokenValiditySeconds)))
+                .expiration(Date.from(now.plusSeconds(ACCESS_TOKEN_VALIDITY_SECONDS)))
                 .signWith(key)
                 .compact();
     }
