@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import type { NovelDetail } from '../../types/novel'
 import Modal from '../ui/Modal'
 import Button from '../ui/Button'
@@ -25,15 +25,17 @@ export default function NovelMetaEditModal({
   const [coverUrl, setCoverUrl] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')
   const [translationNote, setTranslationNote] = useState('')
+  const [syncedNovelId, setSyncedNovelId] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (novel) {
-      setTitle(novel.title)
-      setCoverUrl(novel.coverUrl ?? '')
-      setSystemPrompt(novel.systemPrompt ?? '')
-      setTranslationNote(novel.translationNote ?? '')
-    }
-  }, [novel])
+  // novel prop이 바뀔 때만(다른 소설로 모달이 열릴 때) 폼을 초기화한다.
+  // 렌더링 도중 상태를 조정하는 React의 권장 패턴이라 useEffect 대신 여기서 직접 처리한다.
+  if (novel && novel.id !== syncedNovelId) {
+    setSyncedNovelId(novel.id)
+    setTitle(novel.title)
+    setCoverUrl(novel.coverUrl ?? '')
+    setSystemPrompt(novel.systemPrompt ?? '')
+    setTranslationNote(novel.translationNote ?? '')
+  }
 
   if (!novel) return null
 

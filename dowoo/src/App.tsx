@@ -67,6 +67,7 @@ function App() {
   const [customThemePresets, setCustomThemePresets] = useState<{ name: string; theme: Partial<ThemeSettings> }[]>([])
 
   const [urlInput, setUrlInput] = useState('')
+  const [syncedUrlChapterId, setSyncedUrlChapterId] = useState<string | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isLibraryOpen, setIsLibraryOpen] = useState(false)
 
@@ -91,8 +92,8 @@ function App() {
   // 로그인이 완료된 뒤에만(재로그인 포함) 실행한다.
   useEffect(() => {
     if (authStatus !== 'authenticated') return
-    setIsLoading(true)
     void (async () => {
+      setIsLoading(true)
       try {
         const [novelList, settings, themeData, presets] = await Promise.all([
           listNovels(),
@@ -123,16 +124,20 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStatus])
 
+  // 활성 소설/챕터 인덱스가 바뀌면 이전 챕터 본문을 즉시 비운다(렌더링 도중 상태 조정 패턴).
+  const chapterKey = `${activeNovelDetail?.id ?? ''}:${currentChapterIndex}`
+  const [syncedChapterKey, setSyncedChapterKey] = useState<string | null>(null)
+  if (chapterKey !== syncedChapterKey) {
+    setSyncedChapterKey(chapterKey)
+    setActiveChapter(null)
+  }
+
   // 활성 소설/챕터 인덱스가 바뀌면 해당 챕터 본문을 불러온다.
   useEffect(() => {
     const chapterMeta = activeNovelDetail?.chapters[currentChapterIndex]
-    if (!activeNovelDetail || !chapterMeta) {
-      setActiveChapter(null)
-      return
-    }
+    if (!activeNovelDetail || !chapterMeta) return
 
     let cancelled = false
-    setActiveChapter(null)
     getChapter(activeNovelDetail.id, chapterMeta.id)
       .then((chapter) => {
         if (!cancelled) setActiveChapter(chapter)
@@ -151,9 +156,12 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeNovelDetail?.id, currentChapterIndex, activeNovelDetail?.chapters.length])
 
-  useEffect(() => {
-    if (activeChapter) setUrlInput(activeChapter.sourceUrl)
-  }, [activeChapter])
+  // activeChapter가 바뀔 때만 urlInput을 동기화한다(같은 챕터의 번역 진행 중 갱신에는 반응하지 않음).
+  // 렌더링 도중 상태를 조정하는 React의 권장 패턴이라 useEffect 대신 여기서 직접 처리한다.
+  if (activeChapter && activeChapter.id !== syncedUrlChapterId) {
+    setSyncedUrlChapterId(activeChapter.id)
+    setUrlInput(activeChapter.sourceUrl)
+  }
 
   useEffect(() => {
     if (activeNovelDetail) {
@@ -213,7 +221,11 @@ function App() {
   // 번역을 시작한다. 이미 번역된 챕터를 다시 번역하려면 반드시 "불러오기" 버튼(forceRecrawl)을 눌러야 한다.
   useEffect(() => {
     if (activeChapter && !activeChapter.translatedText && translationStatus === 'idle') {
-      void handleTranslate(activeChapter.novelId, activeChapter.id)
+      const novelId = activeChapter.novelId
+      const chapterId = activeChapter.id
+      queueMicrotask(() => {
+        void handleTranslate(novelId, chapterId)
+      })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChapter?.id])
