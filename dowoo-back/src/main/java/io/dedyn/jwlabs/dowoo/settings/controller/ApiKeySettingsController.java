@@ -2,6 +2,7 @@ package io.dedyn.jwlabs.dowoo.settings.controller;
 
 import io.dedyn.jwlabs.dowoo.common.response.ApiResponse;
 import io.dedyn.jwlabs.dowoo.settings.dto.ApiKeyAppendRequest;
+import io.dedyn.jwlabs.dowoo.settings.dto.ApiKeyBulkAppendRequest;
 import io.dedyn.jwlabs.dowoo.settings.dto.ApiSettingsResponse;
 import io.dedyn.jwlabs.dowoo.settings.dto.ApiSettingsUpdateRequest;
 import io.dedyn.jwlabs.dowoo.settings.service.ApiKeySettingsService;
@@ -42,6 +43,13 @@ public class ApiKeySettingsController {
     public ResponseEntity<ApiResponse<ApiSettingsResponse>> appendKey(@Valid @RequestBody ApiKeyAppendRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(201, apiKeySettingsService.appendKey(request.apiKey()), "키가 추가되었습니다."));
+    }
+
+    @PostMapping("/keys/bulk")
+    public ResponseEntity<ApiResponse<ApiSettingsResponse>> appendKeys(
+            @Valid @RequestBody ApiKeyBulkAppendRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(201, apiKeySettingsService.appendKeys(request.apiKeys()), "키가 추가되었습니다."));
     }
 
     @DeleteMapping("/keys/{keyId}")

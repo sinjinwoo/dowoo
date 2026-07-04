@@ -8,6 +8,7 @@ export interface ApiSettingsPanelProps {
   apiKeys: MaskedApiKey[]
   onModelChange: (model: string) => void
   onAddKey: (key: string) => void
+  onAddKeys: (keys: string[]) => void
   onDeleteKey: (keyId: string) => void
 }
 
@@ -23,14 +24,32 @@ const modelOptions = [
   { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
 ]
 
-export default function ApiSettingsPanel({ model, apiKeys, onModelChange, onAddKey, onDeleteKey }: ApiSettingsPanelProps) {
+export default function ApiSettingsPanel({
+  model,
+  apiKeys,
+  onModelChange,
+  onAddKey,
+  onAddKeys,
+  onDeleteKey,
+}: ApiSettingsPanelProps) {
   const [newKeyInput, setNewKeyInput] = useState('')
+  const [bulkKeyInput, setBulkKeyInput] = useState('')
 
   const handleAdd = () => {
     const key = newKeyInput.trim()
     if (!key) return
     onAddKey(key)
     setNewKeyInput('')
+  }
+
+  const handleBulkAdd = () => {
+    const keys = bulkKeyInput
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+    if (keys.length === 0) return
+    onAddKeys(keys)
+    setBulkKeyInput('')
   }
 
   return (
@@ -78,6 +97,25 @@ export default function ApiSettingsPanel({ model, apiKeys, onModelChange, onAddK
           />
           <Button onClick={handleAdd}>추가</Button>
         </div>
+      </label>
+
+      <label className="block">
+        <span className="mb-1 block text-sm text-gray-700 dark:text-gray-300">
+          API 키 여러 개 한 번에 추가 (줄바꿈으로 구분)
+        </span>
+        <textarea
+          value={bulkKeyInput}
+          onChange={(e) => setBulkKeyInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleBulkAdd()
+          }}
+          placeholder={'AIzaSy...\nAIzaSy...\nAIzaSy...'}
+          rows={3}
+          className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2 font-mono text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+        />
+        <Button className="mt-2 w-full" onClick={handleBulkAdd}>
+          한 번에 추가
+        </Button>
       </label>
 
       <Select label="번역 모델" value={model} options={modelOptions} onChange={onModelChange} />

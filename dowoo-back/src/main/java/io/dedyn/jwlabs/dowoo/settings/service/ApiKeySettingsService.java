@@ -116,6 +116,35 @@ public class ApiKeySettingsService {
         return get();
     }
 
+    /** 한 번에 여러 줄 붙여넣기로 입력된 키를 순서 그대로(로테이션 순번) 이어붙인다. */
+    @Transactional
+    public ApiSettingsResponse appendKeys(List<String> rawKeys) {
+        for (String key : rawKeys) {
+            if (!ASCII_PRINTABLE.matcher(key).matches()) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_API_KEY_FORMAT",
+                        "API 키에 사용할 수 없는 문자가 포함되어 있습니다.");
+            }
+        }
+
+        UUID userId = currentUserProvider.currentUserId();
+        User userRef = userRepository.getReferenceById(userId);
+        int nextOrder = apiKeyRepository.findByUserIdOrderByKeyOrderAsc(userId).size();
+        OffsetDateTime now = OffsetDateTime.now();
+
+        List<ApiKey> newKeys = new ArrayList<>();
+        for (int i = 0; i < rawKeys.size(); i++) {
+            ApiKey key = new ApiKey();
+            key.setUser(userRef);
+            key.setEncryptedKey(apiKeyCipher.encrypt(rawKeys.get(i)));
+            key.setKeyOrder(nextOrder + i);
+            key.setCreatedAt(now);
+            newKeys.add(key);
+        }
+        apiKeyRepository.saveAll(newKeys);
+
+        return get();
+    }
+
     private String mask(String rawKey) {
         if (rawKey.length() <= 8) {
             return "*".repeat(rawKey.length());

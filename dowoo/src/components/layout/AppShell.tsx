@@ -20,7 +20,7 @@ export default function AppShell({ topBar, children, mainStyle, topBarHidden, on
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-white text-gray-900 dark:bg-gray-950 dark:text-gray-100">
+    <div className="flex min-h-screen flex-col bg-chrome text-gray-900 dark:bg-gray-950 dark:text-gray-100">
       {topBar}
       <main
         className={`flex-1 transition-[padding-top] duration-300 sm:pt-14 ${topBarHidden ? 'pt-0' : 'pt-14'}`}

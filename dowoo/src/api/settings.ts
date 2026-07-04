@@ -21,6 +21,9 @@ export const saveModelSettings = (model: string, thinkingBudget?: number) =>
 export const addApiKey = (apiKey: string) =>
   apiPost<ApiSettingsResponse>('/api/v1/settings/api/keys', { apiKey })
 
+export const addApiKeys = (apiKeys: string[]) =>
+  apiPost<ApiSettingsResponse>('/api/v1/settings/api/keys/bulk', { apiKeys })
+
 export const deleteApiKey = (keyId: string) => apiDelete(`/api/v1/settings/api/keys/${keyId}`)
 
 export const getTheme = () => apiGet<ThemeSettings>('/api/v1/settings/theme')

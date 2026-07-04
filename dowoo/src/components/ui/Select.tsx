@@ -1,6 +1,9 @@
+import type { CSSProperties } from 'react'
+
 export interface SelectOption<T extends string = string> {
   value: T
   label: string
+  style?: CSSProperties
 }
 
 export interface SelectProps<T extends string = string> {
@@ -20,7 +23,7 @@ export default function Select<T extends string = string>({ label, value, option
         className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
       >
         {options.map((option) => (
-          <option key={option.value} value={option.value}>
+          <option key={option.value} value={option.value} style={option.style}>
             {option.label}
           </option>
         ))}

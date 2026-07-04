@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 
 export interface ButtonProps {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger'
@@ -8,6 +8,7 @@ export interface ButtonProps {
   disabled?: boolean
   type?: 'button' | 'submit'
   className?: string
+  style?: CSSProperties
 }
 
 const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
@@ -38,12 +39,14 @@ export default function Button({
   disabled = false,
   type = 'button',
   className = '',
+  style,
 }: ButtonProps) {
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
+      style={style}
       className={`
         inline-flex
         items-center

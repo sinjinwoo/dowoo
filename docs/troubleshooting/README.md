@@ -16,6 +16,10 @@
 | [10-vite-config-dead-import-after-cleanup.md](10-vite-config-dead-import-after-cleanup.md) | 프론트 마이그레이션 후 `npm run dev`가 vite.config.ts에서 죽음 |
 | [11-preview-model-billing-and-silent-sdk-failures.md](11-preview-model-billing-and-silent-sdk-failures.md) | 무료 키로 번역이 계속 실패 (preview 모델은 결제 필요 + SDK가 조용히 빈 응답만 줌) |
 | [12-book-title-vs-chapter-title-per-site.md](12-book-title-vs-chapter-title-per-site.md) | 서재의 책 제목이 챕터 제목과 똑같이 저장됨 |
+| [13-jwt-filter-skipped-on-sse-async-dispatch.md](13-jwt-filter-skipped-on-sse-async-dispatch.md) | 번역 중지 시 로그에 `AuthorizationDeniedException` |
+| [14-translate-stream-missing-auth-header.md](14-translate-stream-missing-auth-header.md) | 로그인 후 "불러오기"는 되는데 번역 스트림만 401 |
+| [15-chapter-nav-index-vs-prevnext-url.md](15-chapter-nav-index-vs-prevnext-url.md) | 이전편/다음편 버튼이 작동하지 않음 |
+| [16-translation-lost-on-stream-interrupt.md](16-translation-lost-on-stream-interrupt.md) | 번역 중지 후 돌아오면 진행 상황이 사라지고 재번역됨 |
 
 공통적으로 얻은 교훈:
 
@@ -26,3 +30,7 @@
 - **디렉터리를 지울 때는 `src/`뿐 아니라 설정 파일도 검색할 것.** `src/crawl/`을 지우면서 `vite.config.ts`의 import는 놓쳤다. 사전 타입 체크에 에러가 여러 개 뜨면 "내가 안 건드린 파일이니 무관하겠지"라고 넘겨짚지 말고 하나씩 확인한다. (10)
 - **서드파티 SDK/외부 서비스가 "실패해도 예외를 안 던지는" 경우를 항상 의심할 것.** 빈 응답을 "성공"으로 오판하면 재시도/폴백 로직 자체가 무력화된다. preview·실험 버전 모델/기능은 이름만으로 결제·권한 요구사항을 알 수 없으니 공식 문서에서 상태를 확인한다. (11)
 - **같은 `href`/셀렉터에 여러 후보가 매치될 수 있다는 걸 가정할 것.** `find()`(첫 매치)만 믿지 말고 `find_all()`로 전부 확인 후 필터링한다. (12)
+- **비동기 반환 타입(`SseEmitter`/`DeferredResult`)을 쓰면 커스텀 `OncePerRequestFilter`가 ASYNC 재디스패치에서 기본적으로 스킵된다는 걸 잊지 말 것.** 스레드로컬 상태(SecurityContext 등)를 채우는 필터라면 `shouldNotFilterAsyncDispatch()`를 오버라이드해야 한다. (13)
+- **인증을 나중에 추가하는 리팩터링 때는 공용 API 클라이언트를 안 거치고 직접 `fetch`하는 코드가 없는지 grep으로 확인할 것.** SSE/스트리밍처럼 예외적으로 raw fetch를 쓰는 코드가 사각지대가 되기 쉽다. (14)
+- **타입에 필드가 존재한다고 해서 UI가 그 필드를 실제로 쓰고 있다고 가정하지 말 것.** 스캐폴딩 단계에서 타입만 먼저 정의되고 배선은 나중으로 미뤄졌을 수 있다. (15)
+- **스트리밍 응답을 다루는 서버 코드는 정상 종료 경로뿐 아니라 클라이언트가 언제든 연결을 끊을 수 있다는 전제로 모든 종료 경로(에러/타임아웃/연결 끊김)의 부분 결과 처리를 설계할 것.** (16)

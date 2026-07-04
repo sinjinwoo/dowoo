@@ -25,7 +25,13 @@ export default function ThemePresetButtons({
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
         {themePresets.map((preset) => (
-          <Button key={preset.name} variant="secondary" size="sm" onClick={() => applyPreset(preset)}>
+          <Button
+            key={preset.name}
+            size="sm"
+            onClick={() => applyPreset(preset)}
+            className="border border-gray-300 dark:border-gray-700"
+            style={{ backgroundColor: preset.theme.bgColor, color: preset.theme.fontColor }}
+          >
             {preset.name}
           </Button>
         ))}
@@ -35,7 +41,15 @@ export default function ThemePresetButtons({
         <div className="flex flex-wrap gap-2">
           {customPresets.map((preset) => (
             <span key={preset.name} className="inline-flex items-center gap-1">
-              <Button variant="secondary" size="sm" onClick={() => applyPreset(preset)}>
+              <Button
+                size="sm"
+                onClick={() => applyPreset(preset)}
+                className="border border-gray-300 dark:border-gray-700"
+                style={{
+                  backgroundColor: preset.theme.bgColor ?? theme.bgColor,
+                  color: preset.theme.fontColor ?? theme.fontColor,
+                }}
+              >
                 {preset.name}
               </Button>
               <button

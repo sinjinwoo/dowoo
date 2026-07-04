@@ -68,11 +68,12 @@ export default function LibraryNovelCard({
           </span>
         )}
       </button>
-      <div className="min-w-0 flex-1 pr-6">
+      <div className="min-w-0 flex-1 overflow-hidden pr-6">
         <button
           type="button"
           onClick={onSelect}
-          className="block truncate text-left text-sm font-semibold hover:underline"
+          title={novel.title}
+          className="block w-full truncate text-left text-sm font-semibold hover:underline"
         >
           {novel.title}
         </button>

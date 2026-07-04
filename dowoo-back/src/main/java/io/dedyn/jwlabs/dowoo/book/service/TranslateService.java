@@ -31,13 +31,20 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** api-spec.md §7.1 구현 - AI API의 POST /internal/translate/stream(§9.2)을 호출해 SSE를 그대로 릴레이한다. */
 @Service
@@ -59,10 +66,15 @@ public class TranslateService {
     private final JsonMapper objectMapper;
     private final String aiApiBaseUrl;
     private final String internalToken;
+    private final Duration idleTimeout;
 
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+    private final ScheduledExecutorService watchdogScheduler = Executors.newSingleThreadScheduledExecutor();
     // HTTP/2 cleartext 업그레이드 시도가 uvicorn(HTTP/1.1 전용)과 충돌하는 문제 회피 (HttpCrawlClient 참고).
-    private final HttpClient httpClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
+    // 번역은 스트리밍이라 전체 응답 시간에 상한을 걸 수 없으므로(긴 챕터는 정상적으로 몇 분씩 걸림),
+    // connectTimeout만 짧게 걸고 "얼마나 오래 걸리는지"가 아니라 "얼마나 오래 새 데이터가 안 오는지"는
+    // relaySse의 유휴(idle) 타임아웃 워치독으로 별도 처리한다.
+    private final HttpClient httpClient;
 
     public TranslateService(
             ChapterRepository chapterRepository,
@@ -74,7 +86,9 @@ public class TranslateService {
             CurrentUserProvider currentUserProvider,
             JsonMapper objectMapper,
             @Value("${app.ai-api-base-url}") String aiApiBaseUrl,
-            @Value("${app.internal-token}") String internalToken) {
+            @Value("${app.internal-token}") String internalToken,
+            @Value("${app.ai-api-connect-timeout-seconds}") long connectTimeoutSeconds,
+            @Value("${app.translate-idle-timeout-seconds}") long idleTimeoutSeconds) {
         this.chapterRepository = chapterRepository;
         this.novelRepository = novelRepository;
         this.novelPromptRepository = novelPromptRepository;
@@ -85,6 +99,11 @@ public class TranslateService {
         this.objectMapper = objectMapper;
         this.aiApiBaseUrl = aiApiBaseUrl;
         this.internalToken = internalToken;
+        this.idleTimeout = Duration.ofSeconds(idleTimeoutSeconds);
+        this.httpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(connectTimeoutSeconds))
+                .build();
     }
 
     public SseEmitter translate(UUID novelId, UUID chapterId) {
@@ -153,13 +172,35 @@ public class TranslateService {
         }
     }
 
+    /**
+     * 번역 스트림은 긴 챕터일수록 정상적으로 몇 분씩 걸릴 수 있어 전체 응답 시간에 상한을 걸 수 없다.
+     * 대신 "마지막으로 데이터를 받은 이후 얼마나 지났는지"를 워치독으로 감시하다가, idleTimeout을
+     * 넘기면 응답 스트림을 강제로 닫아 readLine()을 깨우고 TRANSLATE_TIMEOUT 에러로 마무리한다.
+     */
     private void relaySse(SseEmitter emitter, HttpResponse<java.io.InputStream> response, UUID novelId, UUID chapterId)
             throws IOException {
+        AtomicLong lastActivityNanos = new AtomicLong(System.nanoTime());
+        AtomicBoolean timedOut = new AtomicBoolean(false);
+        // 클라이언트가 "중지"를 누르거나 idle 타임아웃/네트워크 오류로 스트림이 done 이벤트 없이 끊겨도,
+        // 그때까지 도착한 줄들을 그대로 저장한다 - 다음에 이 챕터로 돌아왔을 때 처음부터 다시 요청하는 대신
+        // 중단된 지점까지의 번역이 그대로 보이게 하기 위함.
+        List<String> translatedLines = new ArrayList<>();
+        ScheduledFuture<?> watchdog = watchdogScheduler.scheduleWithFixedDelay(() -> {
+            if (System.nanoTime() - lastActivityNanos.get() > idleTimeout.toNanos()) {
+                timedOut.set(true);
+                try {
+                    response.body().close();
+                } catch (IOException ignored) {
+                }
+            }
+        }, 5, 5, TimeUnit.SECONDS);
+
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
             String eventName = null;
             StringBuilder dataBuffer = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) {
+                lastActivityNanos.set(System.nanoTime());
                 if (line.startsWith("event:")) {
                     eventName = line.substring(6).trim();
                 } else if (line.startsWith("data:")) {
@@ -168,12 +209,14 @@ public class TranslateService {
                     String dataJson = dataBuffer.toString();
                     emitter.send(SseEmitter.event().name(eventName).data(dataJson, MediaType.APPLICATION_JSON));
 
-                    if ("done".equals(eventName)) {
+                    if ("line".equals(eventName)) {
+                        collectLine(translatedLines, dataJson);
+                    } else if ("done".equals(eventName)) {
                         persistTranslation(novelId, chapterId, dataJson);
                         emitter.complete();
                         return;
-                    }
-                    if ("error".equals(eventName)) {
+                    } else if ("error".equals(eventName)) {
+                        persistPartialTranslation(novelId, chapterId, translatedLines);
                         emitter.complete();
                         return;
                     }
@@ -181,22 +224,57 @@ public class TranslateService {
                     dataBuffer.setLength(0);
                 }
             }
+        } catch (IOException e) {
+            persistPartialTranslation(novelId, chapterId, translatedLines);
+            if (timedOut.get()) {
+                sendError(emitter, "TRANSLATE_TIMEOUT", "번역 응답이 지연되어 중단되었습니다. 잠시 후 다시 시도해주세요.");
+                emitter.complete();
+                return;
+            }
+            throw e;
+        } finally {
+            watchdog.cancel(true);
         }
+        persistPartialTranslation(novelId, chapterId, translatedLines);
         emitter.complete();
+    }
+
+    private void collectLine(List<String> translatedLines, String lineDataJson) {
+        try {
+            JsonNode node = objectMapper.readTree(lineDataJson);
+            int index = node.path("index").asInt(translatedLines.size());
+            String text = node.path("text").asText("");
+            while (translatedLines.size() <= index) {
+                translatedLines.add("");
+            }
+            translatedLines.set(index, text);
+        } catch (Exception ignored) {
+            // 파싱 실패한 줄 하나 때문에 스트림 전체를 실패시키지 않는다.
+        }
+    }
+
+    private void persistPartialTranslation(UUID novelId, UUID chapterId, List<String> translatedLines) {
+        if (translatedLines.isEmpty()) {
+            return;
+        }
+        saveTranslatedText(novelId, chapterId, String.join("\n", translatedLines));
     }
 
     private void persistTranslation(UUID novelId, UUID chapterId, String doneDataJson) {
         try {
             JsonNode node = objectMapper.readTree(doneDataJson);
-            String translatedText = node.path("translatedText").asText("");
-            chapterRepository.findByIdAndNovelId(chapterId, novelId).ifPresent(chapter -> {
-                chapter.setTranslatedText(translatedText);
-                chapter.setUpdatedAt(OffsetDateTime.now());
-                chapterRepository.save(chapter);
-            });
+            saveTranslatedText(novelId, chapterId, node.path("translatedText").asText(""));
         } catch (Exception ignored) {
             // done 이벤트 파싱/저장 실패는 스트림 자체의 성공 여부와 무관하므로 조용히 무시한다.
         }
+    }
+
+    private void saveTranslatedText(UUID novelId, UUID chapterId, String translatedText) {
+        chapterRepository.findByIdAndNovelId(chapterId, novelId).ifPresent(chapter -> {
+            chapter.setTranslatedText(translatedText);
+            chapter.setUpdatedAt(OffsetDateTime.now());
+            chapterRepository.save(chapter);
+        });
     }
 
     private void sendError(SseEmitter emitter, String code, String message) {
