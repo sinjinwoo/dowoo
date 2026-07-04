@@ -25,6 +25,7 @@
 | [19-last-chapter-shows-crawl-error.md](19-last-chapter-shows-crawl-error.md) | 마지막 화에서 "다음 편" 클릭 시 안내 대신 크롤링 오류(PARSE_FAILED)가 뜸 |
 | [20-exceptionhandler-fails-on-committed-sse-response.md](20-exceptionhandler-fails-on-committed-sse-response.md) | 번역 스트리밍 중 다음 편 이동 시 GlobalExceptionHandler에서 2차 예외 로그 |
 | [21-chunk-translation-key-rpm-concentration.md](21-chunk-translation-key-rpm-concentration.md) | 청크 번역 도입 시 청크마다 같은 키만 써서 RPM 한도에 몰릴 뻔한 설계 문제 |
+| [22-chunk-buffering-broke-realtime-streaming.md](22-chunk-buffering-broke-realtime-streaming.md) | 청크 번역 도입 후 실시간 스트리밍이 안 되고 번역이 끝나야 한 번에 보임 |
 
 공통적으로 얻은 교훈:
 
@@ -43,3 +44,4 @@
 - **사이트 마크업 문자열은 한 글자 차이(`.htm` vs `.html`)로 완전히 다른 뜻이 될 수 있다.** 대화로 여러 번 확인하며 오락가락하느니, 정규식을 애초에 관대하게 만들어(`.html?`) 어느 쪽이든 매치하게 하는 편이 안전하다. 또한 크롤링 결과(`nextUrl` 등)는 크롤링 시점의 스냅샷이라 파서를 고쳐도 이미 저장된 데이터는 자동으로 갱신되지 않는다는 것도 기억할 것. (19)
 - **전역 예외 핸들러가 하나의 Content-Type만 가정하고 항상 같은 바디를 쓰려 하면 안 된다.** SSE 등 스트리밍 응답은 이미 다른 Content-Type으로 커밋돼 있을 수 있으므로 `HttpServletResponse.isCommitted()`로 분기해야 한다. (20)
 - **"직전에 성공한 걸 재사용"과 "여러 리소스에 부하 분산"은 충돌할 수 있다.** 하나의 논리적 작업이 내부적으로 여러 번의 API 호출로 쪼개진다면(예: 긴 챕터를 청크로 나눠 번역), 재시도 효율만 보고 같은 자원(API 키)을 계속 재사용하면 그 자원에 부하가 몰린다. 결과 품질에 영향을 주는 축(모델)과 순수 자원 축(키)을 구분해서, 품질 축은 유지하고 자원 축만 라운드로빈으로 분산시킨다. (21)
+- **재시도/에러 격리를 위한 안전장치가 스트리밍의 실시간성 자체를 깨뜨리지 않는지 확인할 것.** "끝난 뒤 한꺼번에 검증하고 내보내기"는 안전해 보이지만, 스트리밍 아키텍처에서는 그 자체로 스트리밍을 꺼버리는 것과 같다. 리팩터링 전에 기존 기능이 암묵적으로 어떤 코드 경로에 의존하는지 목록화해두지 않으면 다른 목적으로 코드를 고치다가 조용히 회귀시키기 쉽다. (22)

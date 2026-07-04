@@ -74,8 +74,9 @@ async def _try_one_key(
     chunk_text: str,
     thinking_budget: Optional[int],
 ) -> AsyncIterator[dict]:
-    """청크 하나를 한 (모델, 키) 조합으로 시도한다. 스트리밍 도중 실패하면 그때까지 받은 줄은
-    버리고 _attempt_failed만 알린다 - 실패한 시도의 부분 출력이 다음 재시도 결과와 섞이면 안 된다."""
+    """청크 하나를 한 (모델, 키) 조합으로 시도한다. 줄이 도착하는 대로 바로 _line을 내보내
+    실시간 스트리밍을 유지한다 - 청크 전체를 모았다가 한 번에 내보내면 화면이 멈춰있다가
+    번역이 다 끝나야 한꺼번에 나타나는 것처럼 보인다."""
     client = genai.Client(api_key=api_key)
     config_kwargs: dict = {"system_instruction": resolved_prompt}
     if thinking_budget is not None:
@@ -98,12 +99,13 @@ async def _try_one_key(
             while "\n" in buffer:
                 line, buffer = buffer.split("\n", 1)
                 translated_lines.append(line)
+                yield {"event": "_line", "data": line}
 
         if buffer:
             translated_lines.append(buffer)
+            yield {"event": "_line", "data": buffer}
 
         if translated_lines:
-            yield {"event": "_chunk_done", "data": {"lines": translated_lines}}
             return
 
         # 일부 SDK 오류는 예외를 던지지 않고 빈 스트림만 반환한다(예: 무효화된 키, preview 모델 결제 미설정 등).
@@ -164,14 +166,20 @@ async def translate_stream(
                 key_index = (key_start_index + key_offset) % len(keys)
 
                 attempt_failed = None
-                chunk_lines: list[str] = []
                 async for item in _try_one_key(
                     model, keys[key_index], resolved_prompt, chunk_text, thinking_budget
                 ):
                     if item["event"] == "_attempt_failed":
                         attempt_failed = item
-                    else:
-                        chunk_lines = item["data"]["lines"]
+                        break
+                    # _line - 도착하는 대로 바로 실제 line/progress 이벤트로 내보내 실시간
+                    # 스트리밍을 유지한다(청크가 끝날 때까지 모아뒀다가 한 번에 내보내지 않음).
+                    line = item["data"]
+                    all_lines.append(line)
+                    yield {"event": "line", "data": {"index": line_count, "text": line}}
+                    line_count += 1
+                    percent = min(95, int(line_count / total_lines * 100))
+                    yield {"event": "progress", "data": {"percent": percent}}
 
                 if attempt_failed is not None:
                     last_error = attempt_failed["data"]
@@ -179,13 +187,6 @@ async def translate_stream(
                     if not retryable:
                         break
                     continue
-
-                for line in chunk_lines:
-                    all_lines.append(line)
-                    yield {"event": "line", "data": {"index": line_count, "text": line}}
-                    line_count += 1
-                    percent = min(95, int(line_count / total_lines * 100))
-                    yield {"event": "progress", "data": {"percent": percent}}
 
                 model_start_index = model_index
                 # 성공한 키를 그대로 또 쓰지 않고 다음 키로 넘긴다 - 안 그러면 청크가 많은 긴
