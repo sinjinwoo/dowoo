@@ -19,14 +19,11 @@ public class User {
     @GeneratedValue
     private UUID id;
 
-    @Column(nullable = false)
-    private String email;
+    @Column(nullable = false, unique = true)
+    private String username;
 
-    @Column(name = "oauth_provider", nullable = false)
-    private String oauthProvider;
-
-    @Column(name = "oauth_id", nullable = false)
-    private String oauthId;
+    @Column(name = "password_hash", nullable = false)
+    private String passwordHash;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
