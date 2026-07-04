@@ -7,6 +7,11 @@ from bs4 import BeautifulSoup
 BOOK_LINK_HREF_RE = re.compile(r"^/read/\d+/$")
 GENERIC_BOOK_LINK_LABELS = {"书籍页", "書籍頁"}
 
+# 첫 장/마지막 장에서는 이전/다음 링크가 실제 회차가 아니라 책 소개 페이지(/read/{bookId}/) 또는
+# end 페이지(/read/{bookId}/end.html)를 가리킨다 - 이 경우 더 이상 이동할 챕터가 없는 것으로 처리한다.
+NO_PREV_CHAPTER_RE = re.compile(r"/read/\d+/$")
+NO_NEXT_CHAPTER_RE = re.compile(r"/read/\d+/end\.html$")
+
 
 def parse_idx(html: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
@@ -27,13 +32,23 @@ def parse_idx(html: str) -> dict:
     paragraphs = soup.select("article section p")
     content = "\n\n".join(p.get_text(strip=True) for p in paragraphs)
 
-    prev_el = soup.select_one(".chapter-pre")
-    next_el = soup.select_one(".chapter-next")
+    # 정상 회차에서는 <a class="chapter-pre/chapter-next" href="...">가, 첫/마지막 장에서는 클릭 불가능한
+    # <div class="read-pre/read-next" data-url="...">로 대체된다 - 두 형태 모두 시도해서 값을 얻는다.
+    prev_el = soup.select_one(".chapter-pre") or soup.select_one(".read-pre")
+    next_el = soup.select_one(".chapter-next") or soup.select_one(".read-next")
+
+    prev_url = (prev_el.get("href") or prev_el.get("data-url")) if prev_el else None
+    next_url = (next_el.get("href") or next_el.get("data-url")) if next_el else None
+
+    if prev_url and NO_PREV_CHAPTER_RE.search(prev_url):
+        prev_url = None
+    if next_url and NO_NEXT_CHAPTER_RE.search(next_url):
+        next_url = None
 
     return {
         "title": title,
         "book_title": book_title or None,
         "content": content,
-        "prev": prev_el.get("href") if prev_el else None,
-        "next": next_el.get("href") if next_el else None,
+        "prev": prev_url,
+        "next": next_url,
     }

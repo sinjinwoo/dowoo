@@ -30,10 +30,19 @@ def parse_mxsw(html: str) -> dict:
     prev_el = soup.select_one("#pb_prev") or soup.select_one("#pb_prev1")
     next_el = soup.select_one("#pb_next") or soup.select_one("#pb_next1")
 
+    prev_url = prev_el.get("href") if prev_el else None
+    next_url = next_el.get("href") if next_el else None
+
+    # 첫 장/마지막 장에서는 이전/다음 링크가 회차가 아니라 작품 메인 페이지(/{bookId}/)를 가리킨다.
+    if prev_url and BOOK_LINK_HREF_RE.search(prev_url):
+        prev_url = None
+    if next_url and BOOK_LINK_HREF_RE.search(next_url):
+        next_url = None
+
     return {
         "title": title,
         "book_title": book_title or None,
         "content": text,
-        "prev": prev_el.get("href") if prev_el else None,
-        "next": next_el.get("href") if next_el else None,
+        "prev": prev_url,
+        "next": next_url,
     }
