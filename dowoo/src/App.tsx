@@ -43,6 +43,17 @@ import type { Novel, NovelDetail, Chapter } from './types/novel'
 
 type TranslationError = { type: 'crawling' | 'gemini'; message: string }
 
+// 스킴(https://)이 빠진 채로 도메인만 붙여넣는 경우(오타로 스킴을 빼먹거나, 그냥 주소만 복사한 경우)도
+// URL로 인식해서 자동으로 https://를 붙여준다 - 공백이 없고 "도메인.도메인(/경로)" 형태일 때만 해당.
+// 실제 소설 본문(붙여넣기)은 문장이라 공백/문장부호가 있어서 이 패턴에 걸릴 일이 없다.
+const BARE_DOMAIN_PATTERN = /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/\S*)?$/i
+
+function normalizeAsUrlIfPossible(input: string): string | null {
+  if (/^https?:\/\//i.test(input)) return input
+  if (!input.includes(' ') && BARE_DOMAIN_PATTERN.test(input)) return `https://${input}`
+  return null
+}
+
 function App() {
   const { status: authStatus, logout } = useAuth()
   const [isLoading, setIsLoading] = useState(true)
@@ -212,13 +223,13 @@ function App() {
     if (!input || translationStatus === 'translating') return
     setTranslationError(null)
 
-    const isUrl = /^https?:\/\//i.test(input)
+    const normalizedUrl = normalizeAsUrlIfPossible(input)
 
     try {
       // URL 재제출은 "다시 번역"으로 취급한다 - 이미 불러온 소설이라도 forceRecrawl로
       // 원문을 다시 가져오고, 캐시된 번역 여부와 무관하게 재번역한다.
       const result = await readSource(
-        isUrl ? { sourceUrl: input, forceRecrawl: true } : { pastedText: input }
+        normalizedUrl ? { sourceUrl: normalizedUrl, forceRecrawl: true } : { pastedText: input }
       )
       await refreshNovels()
       const detail = await getNovelDetail(result.novelId)
