@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { MaskedApiKey } from '../../api/settings'
-import Select from '../ui/Select'
+import BadgeSelect, { type BadgeSelectOption } from '../ui/BadgeSelect'
 import Button from '../ui/Button'
 
 export interface ApiSettingsPanelProps {
@@ -13,15 +13,18 @@ export interface ApiSettingsPanelProps {
 }
 
 // preview 모델(gemini-3-flash-preview 등)은 보통 결제(billing)가 켜져 있어야 해서 목록에서 제외.
-// "자동"을 고르면 서버가 gemini-2.5-flash → gemini-2.5-flash-lite → gemini-3.5-flash 순서로
-// (키 로테이션을 모델마다 전부 소진한 뒤) 시도한다. 특정 모델을 고르면 그 모델만 시도하고 실패하면 끝.
-const modelOptions = [
+// "자동"을 고르면 서버가 gemini-3.1-flash-lite → gemini-3-flash → gemini-2.5-flash → gemini-3.5-flash
+// 순서로(키 로테이션을 모델마다 전부 소진한 뒤) 시도한다. 특정 모델을 고르면 그 모델만 시도하고
+// 실패하면 끝(Pro 계열은 자동 목록에 없으므로 직접 선택해야 사용된다).
+const modelOptions: BadgeSelectOption[] = [
   { value: '', label: '자동 (무료 모델 순서대로 시도)' },
-  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-  { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite' },
-  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-  { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
-  { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', badge: { text: '무료', tone: 'free' } },
+  { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', badge: { text: '무료', tone: 'free' } },
+  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', badge: { text: '유료', tone: 'paid' } },
+  { value: 'gemini-3-flash', label: 'Gemini 3 Flash', badge: { text: '무료', tone: 'free' } },
+  { value: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro', badge: { text: '유료', tone: 'paid' } },
+  { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', badge: { text: '무료', tone: 'free' } },
+  { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', badge: { text: '무료', tone: 'free' } },
 ]
 
 export default function ApiSettingsPanel({
@@ -118,7 +121,7 @@ export default function ApiSettingsPanel({
         </Button>
       </label>
 
-      <Select label="번역 모델" value={model} options={modelOptions} onChange={onModelChange} />
+      <BadgeSelect label="번역 모델" value={model} options={modelOptions} onChange={onModelChange} />
     </div>
   )
 }
