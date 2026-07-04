@@ -1,6 +1,7 @@
 # dowoo
 
 [![License](https://img.shields.io/github/license/sinjinwoo/dowoo.svg)](LICENSE)
+[![CI](https://github.com/sinjinwoo/dowoo/actions/workflows/ci.yml/badge.svg)](https://github.com/sinjinwoo/dowoo/actions/workflows/ci.yml)
 [![Build](https://github.com/sinjinwoo/dowoo/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/sinjinwoo/dowoo/actions/workflows/docker-publish.yml)
 [![Docker Pulls](https://img.shields.io/docker/pulls/sjw0066/dowoo.svg)](https://hub.docker.com/r/sjw0066/dowoo)
 [![Docker Image Version](https://img.shields.io/docker/v/sjw0066/dowoo?sort=semver&label=version)](https://hub.docker.com/r/sjw0066/dowoo/tags)
