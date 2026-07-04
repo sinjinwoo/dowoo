@@ -244,7 +244,20 @@ function App() {
   const handleNavigateChapter = async (direction: 'prev' | 'next') => {
     if (!activeNovelDetail || !activeChapter) return
     abortControllerRef.current?.abort()
-    const targetUrl = direction === 'prev' ? activeChapter.prevUrl : activeChapter.nextUrl
+    let targetUrl = direction === 'prev' ? activeChapter.prevUrl : activeChapter.nextUrl
+
+    // 우리가 마지막으로 알고 있는 챕터라도, 그 사이 원문 사이트에 새 챕터가 올라왔을 수 있다.
+    // "다음 편 없음"으로 단정하기 전에 현재 챕터 주소를 가볍게 재크롤링(번역 없이 크롤링만)해서
+    // nextUrl이 새로 생겼는지 한 번 더 확인한다. 실패하면 그냥 기존 "다음 편 없음" 흐름으로 넘어간다.
+    if (!targetUrl && direction === 'next') {
+      try {
+        const recrawled = await crawlUrl(activeChapter.sourceUrl)
+        targetUrl = recrawled.nextUrl ?? null
+      } catch {
+        // 재확인 실패는 무시 - 아래에서 기존과 동일하게 "다음 편이 없습니다" 처리
+      }
+    }
+
     if (!targetUrl) {
       setTranslationError({
         type: 'crawling',
@@ -283,8 +296,8 @@ function App() {
     }
   }
 
-  const handleSelectNovel = async (novel: Novel) => {
-    await openNovelDetail(novel.id, novel.lastReadChapterIndex ?? 0)
+  const handleSelectChapter = async (novelId: string, chapterIndex: number) => {
+    await openNovelDetail(novelId, chapterIndex)
     setIsLibraryOpen(false)
   }
 
@@ -421,7 +434,7 @@ function App() {
         isOpen={isLibraryOpen}
         onClose={() => setIsLibraryOpen(false)}
         novels={novels}
-        onSelectNovel={(novel) => void handleSelectNovel(novel)}
+        onSelectChapter={(novelId, chapterIndex) => void handleSelectChapter(novelId, chapterIndex)}
         onLoadNovelDetail={getNovelDetail}
         onUpdateNovel={(novelId, title, coverUrl, systemPrompt, translationNote) =>
           void handleUpdateNovel(novelId, title, coverUrl, systemPrompt, translationNote)
