@@ -24,6 +24,7 @@
 | [18-idle-timeout-too-short-for-long-chapters.md](18-idle-timeout-too-short-for-long-chapters.md) | 본문이 매우 길면 번역이 지연 에러(TRANSLATE_TIMEOUT)로 끊김 |
 | [19-last-chapter-shows-crawl-error.md](19-last-chapter-shows-crawl-error.md) | 마지막 화에서 "다음 편" 클릭 시 안내 대신 크롤링 오류(PARSE_FAILED)가 뜸 |
 | [20-exceptionhandler-fails-on-committed-sse-response.md](20-exceptionhandler-fails-on-committed-sse-response.md) | 번역 스트리밍 중 다음 편 이동 시 GlobalExceptionHandler에서 2차 예외 로그 |
+| [21-chunk-translation-key-rpm-concentration.md](21-chunk-translation-key-rpm-concentration.md) | 청크 번역 도입 시 청크마다 같은 키만 써서 RPM 한도에 몰릴 뻔한 설계 문제 |
 
 공통적으로 얻은 교훈:
 
@@ -41,3 +42,4 @@
 - **try-with-resources의 암묵적 `close()`가 던지는 예외는 같은 try 블록의 `catch`에 잡힌다는 걸 기억할 것.** "이미 성공적으로 끝나고 반환하는" 경로에서 리소스 정리 실패가 성공 처리 자체를 덮어쓰지 않도록, 정상 처리와 리소스 정리의 예외 범위를 분리한다. (17)
 - **사이트 마크업 문자열은 한 글자 차이(`.htm` vs `.html`)로 완전히 다른 뜻이 될 수 있다.** 대화로 여러 번 확인하며 오락가락하느니, 정규식을 애초에 관대하게 만들어(`.html?`) 어느 쪽이든 매치하게 하는 편이 안전하다. 또한 크롤링 결과(`nextUrl` 등)는 크롤링 시점의 스냅샷이라 파서를 고쳐도 이미 저장된 데이터는 자동으로 갱신되지 않는다는 것도 기억할 것. (19)
 - **전역 예외 핸들러가 하나의 Content-Type만 가정하고 항상 같은 바디를 쓰려 하면 안 된다.** SSE 등 스트리밍 응답은 이미 다른 Content-Type으로 커밋돼 있을 수 있으므로 `HttpServletResponse.isCommitted()`로 분기해야 한다. (20)
+- **"직전에 성공한 걸 재사용"과 "여러 리소스에 부하 분산"은 충돌할 수 있다.** 하나의 논리적 작업이 내부적으로 여러 번의 API 호출로 쪼개진다면(예: 긴 챕터를 청크로 나눠 번역), 재시도 효율만 보고 같은 자원(API 키)을 계속 재사용하면 그 자원에 부하가 몰린다. 결과 품질에 영향을 주는 축(모델)과 순수 자원 축(키)을 구분해서, 품질 축은 유지하고 자원 축만 라운드로빈으로 분산시킨다. (21)

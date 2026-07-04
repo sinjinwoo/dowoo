@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from app.translate.gemini_client import (
     _get_status,
     _is_auth_or_quota_error,
+    _split_into_chunks,
     _to_error_payload,
     resolve_system_prompt,
     translate_stream,
@@ -204,3 +205,88 @@ async def test_empty_response_without_exception_is_treated_as_retryable_failure(
         ))
 
     assert events[-1] == {"event": "done", "data": {"translatedText": "ok"}}
+
+
+# ---- 청크 분할 ----
+
+
+def test_split_into_chunks_keeps_short_text_as_single_chunk():
+    assert _split_into_chunks("한 줄\n두 줄", chunk_size=10000) == ["한 줄\n두 줄"]
+
+
+def test_split_into_chunks_splits_on_line_boundaries_only():
+    line1 = "a" * 4000
+    line2 = "b" * 4000
+    line3 = "c" * 4000
+    text = "\n".join([line1, line2, line3])
+
+    chunks = _split_into_chunks(text, chunk_size=10000)
+
+    # line1+line2는 8001자로 1만자 이하라 한 청크에 들어가지만, 거기에 line3까지 더하면
+    # 1만자를 넘으므로 line3는 다음 청크로 분리돼야 한다 - 어떤 청크도 줄 중간에서 잘리면 안 된다.
+    assert chunks == [f"{line1}\n{line2}", line3]
+    assert "\n".join(chunks[0].split("\n") + chunks[1].split("\n")) == text
+
+
+async def test_multi_chunk_translation_calls_gemini_once_per_chunk_and_concatenates_in_order():
+    line1 = "a" * 4000
+    line2 = "b" * 4000
+    line3 = "c" * 4000
+    original_text = "\n".join([line1, line2, line3])
+
+    call_outputs = [["translated-chunk-1"], ["translated-chunk-2"]]
+    call_count = {"n": 0}
+    client = MagicMock()
+
+    async def generate_content_stream(**kwargs):
+        outputs = call_outputs[call_count["n"]]
+        call_count["n"] += 1
+        return _fake_stream(outputs)
+
+    client.aio.models.generate_content_stream = generate_content_stream
+
+    with _patch_genai_client({"key-a": client}):
+        events = await _collect(translate_stream(
+            api_keys=["key-a"], models=["gemini-2.5-flash"], system_prompt="s",
+            translation_note="", original_text=original_text, thinking_budget=None,
+        ))
+
+    assert call_count["n"] == 2  # 청크 2개 -> Gemini 호출도 2번, 챕터 전체를 한 번에 보내지 않음
+    line_events = [e for e in events if e["event"] == "line"]
+    assert [e["data"]["index"] for e in line_events] == [0, 1]
+    assert [e["data"]["text"] for e in line_events] == ["translated-chunk-1", "translated-chunk-2"]
+    assert events[-1] == {"event": "done", "data": {"translatedText": "translated-chunk-1\ntranslated-chunk-2"}}
+
+
+async def test_multi_chunk_translation_round_robins_key_after_each_success_to_spread_rpm_load():
+    # 청크가 여러 개인 긴 챕터에서 매번 같은 키만 쓰면 그 키에만 요청이 몰려 RPM 한도에
+    # 걸리기 쉽다 - 청크가 성공할 때마다 다음 키로 넘어가서 부하가 분산되는지 검증한다.
+    line1 = "a" * 4000
+    line2 = "b" * 4000
+    line3 = "c" * 4000
+    original_text = "\n".join([line1, line2, line3])
+
+    call_log: list[str] = []
+
+    def make_client(api_key):
+        client = MagicMock()
+
+        async def generate_content_stream(**kwargs):
+            call_log.append(api_key)
+            return _fake_stream([f"translated-by-{api_key}"])
+
+        client.aio.models.generate_content_stream = generate_content_stream
+        return client
+
+    with patch("app.translate.gemini_client.genai.Client", side_effect=make_client), \
+            patch("app.translate.gemini_client.random.randrange", return_value=0):
+        events = await _collect(translate_stream(
+            api_keys=["key-a", "key-b"], models=["gemini-2.5-flash"], system_prompt="s",
+            translation_note="", original_text=original_text, thinking_budget=None,
+        ))
+
+    assert call_log == ["key-a", "key-b"]  # 청크1은 key-a, 청크2는 key-a를 또 쓰지 않고 key-b로
+    assert events[-1] == {
+        "event": "done",
+        "data": {"translatedText": "translated-by-key-a\ntranslated-by-key-b"},
+    }

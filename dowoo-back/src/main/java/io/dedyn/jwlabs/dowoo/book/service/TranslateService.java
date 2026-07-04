@@ -51,10 +51,10 @@ import java.util.concurrent.atomic.AtomicLong;
 public class TranslateService {
 
     // 사용자가 모델을 지정하지 않으면(설정 미지정=자동) 이 순서로 시도한다 - 무료 티어에서 안정적으로
-    // 쓸 수 있는 정식 출시(비-preview) 모델 우선. preview 모델은 보통 결제(billing)가 켜져 있어야 해서
-    // 자동 목록에서 제외한다.
+    // 쓸 수 있는 정식 출시(비-preview) 모델 우선. preview 모델과 유료 전용 모델(Pro 계열)은 보통
+    // 결제(billing)가 켜져 있어야 해서 자동 목록에서 제외한다.
     private static final List<String> DEFAULT_MODEL_FALLBACK =
-            List.of("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.5-flash");
+            List.of("gemini-3.1-flash-lite", "gemini-3-flash", "gemini-2.5-flash", "gemini-3.5-flash");
 
     // 내부망 커넥션 연결이라 짧게 잡아도 충분하다.
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);

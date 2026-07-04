@@ -8,9 +8,33 @@ from google.genai import types
 ASCII_PRINTABLE_RE = re.compile(r"^[\x21-\x7e]+$")
 STATUS_RE = re.compile(r"\b(4\d{2}|5\d{2})\b")
 
+# 챕터 전체를 한 번의 요청으로 보내면 아주 긴 화에서 응답이 느려지거나(첫 줄이 나오기까지 몇 분씩
+# "생각"만 하는 구간, docs/troubleshooting/18 참고) 중간에 끊길 위험이 커진다 - 원문을 1만자
+# 단위로 잘라 순차적으로 번역한다. 줄 단위 1:1 대응이 깨지면 안 되므로 반드시 줄 경계에서만 자른다.
+CHUNK_SIZE_CHARS = 10000
+
 
 def resolve_system_prompt(template: str, memo: str) -> str:
     return template.replace("{{memo}}", memo or "")
+
+
+def _split_into_chunks(text: str, chunk_size: int = CHUNK_SIZE_CHARS) -> list[str]:
+    lines = text.split("\n")
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for line in lines:
+        extra = len(line) + (1 if current else 0)  # 줄바꿈으로 다시 이어붙일 때의 길이까지 계산
+        if current and current_len + extra > chunk_size:
+            chunks.append("\n".join(current))
+            current = [line]
+            current_len = len(line)
+        else:
+            current.append(line)
+            current_len += extra
+    if current:
+        chunks.append("\n".join(current))
+    return chunks or [""]
 
 
 def _get_status(exc: Exception) -> Optional[int]:
@@ -47,11 +71,11 @@ async def _try_one_key(
     model: str,
     api_key: str,
     resolved_prompt: str,
-    original_text: str,
+    chunk_text: str,
     thinking_budget: Optional[int],
-    total_lines: int,
 ) -> AsyncIterator[dict]:
-    """한 (모델, 키) 조합으로 한 번 시도한다. 성공하면 done까지 yield, 실패하면 result 이벤트로 원인만 yield."""
+    """청크 하나를 한 (모델, 키) 조합으로 시도한다. 스트리밍 도중 실패하면 그때까지 받은 줄은
+    버리고 _attempt_failed만 알린다 - 실패한 시도의 부분 출력이 다음 재시도 결과와 섞이면 안 된다."""
     client = genai.Client(api_key=api_key)
     config_kwargs: dict = {"system_instruction": resolved_prompt}
     if thinking_budget is not None:
@@ -63,7 +87,7 @@ async def _try_one_key(
     try:
         stream = await client.aio.models.generate_content_stream(
             model=model,
-            contents=original_text,
+            contents=chunk_text,
             config=types.GenerateContentConfig(**config_kwargs),
         )
         async for chunk in stream:
@@ -74,17 +98,12 @@ async def _try_one_key(
             while "\n" in buffer:
                 line, buffer = buffer.split("\n", 1)
                 translated_lines.append(line)
-                percent = min(95, int(len(translated_lines) / total_lines * 100))
-                yield {"event": "line", "data": {"index": len(translated_lines) - 1, "text": line}}
-                yield {"event": "progress", "data": {"percent": percent}}
 
         if buffer:
             translated_lines.append(buffer)
-            yield {"event": "line", "data": {"index": len(translated_lines) - 1, "text": buffer}}
 
         if translated_lines:
-            yield {"event": "progress", "data": {"percent": 100}}
-            yield {"event": "done", "data": {"translatedText": "\n".join(translated_lines)}}
+            yield {"event": "_chunk_done", "data": {"lines": translated_lines}}
             return
 
         # 일부 SDK 오류는 예외를 던지지 않고 빈 스트림만 반환한다(예: 무효화된 키, preview 모델 결제 미설정 등).
@@ -102,6 +121,10 @@ async def _try_one_key(
 # "키 우선, 모델 다음" 순서 - 모델 하나마다 키를 전부 순회(무작위 시작 + 순차 폴백)하고,
 # 그 모델의 키를 다 소진해야만 다음 모델로 넘어간다. 인증/키/응답없음 계열 오류만 다음 키로,
 # 그 외(예: 모델 이름 자체가 잘못됨) 오류는 그 모델의 남은 키를 건너뛰고 바로 다음 모델로 넘어간다.
+#
+# 원문은 1만자 단위 청크로 나눠 순차 번역한다(전체 챕터를 한 번에 보내지 않음). 청크마다 모델/키
+# 순환을 처음부터 다시 하지 않고, 직전 청크에서 성공한 조합부터 이어서 시도한다 - 이미 잘 되는
+# 조합이 있는데 매 청크마다 실패를 반복할 이유가 없다.
 async def translate_stream(
     api_keys: list[str],
     models: list[str],
@@ -122,30 +145,64 @@ async def translate_stream(
     total_lines = max(1, len(original_text.split("\n")))
     yield {"event": "start", "data": {"totalLines": total_lines}}
 
-    last_error: Optional[dict] = None
+    chunks = _split_into_chunks(original_text)
+    all_lines: list[str] = []
+    line_count = 0
+    model_start_index = 0
+    key_start_index = random.randrange(len(keys))
 
-    for model in models:
-        start_index = random.randrange(len(keys))
-        for attempt in range(len(keys)):
-            key_index = (start_index + attempt) % len(keys)
+    for chunk_text in chunks:
+        last_error: Optional[dict] = None
+        chunk_succeeded = False
+
+        for model_offset in range(len(models)):
+            model_index = (model_start_index + model_offset) % len(models)
+            model = models[model_index]
 
             retryable = True
-            async for item in _try_one_key(
-                model, keys[key_index], resolved_prompt, original_text, thinking_budget, total_lines
-            ):
-                if item["event"] == "_attempt_failed":
-                    last_error = item["data"]
-                    retryable = item["retryable"]
-                    break
-                yield item
-            else:
-                # for...else: break 없이 스트림이 끝났다 = done까지 정상적으로 yield됨
-                return
+            for key_offset in range(len(keys)):
+                key_index = (key_start_index + key_offset) % len(keys)
 
-            if not retryable:
-                # 키 문제가 아닌 오류(예: 잘못된 모델 이름)는 이 모델의 나머지 키를 시도할 필요가 없다.
+                attempt_failed = None
+                chunk_lines: list[str] = []
+                async for item in _try_one_key(
+                    model, keys[key_index], resolved_prompt, chunk_text, thinking_budget
+                ):
+                    if item["event"] == "_attempt_failed":
+                        attempt_failed = item
+                    else:
+                        chunk_lines = item["data"]["lines"]
+
+                if attempt_failed is not None:
+                    last_error = attempt_failed["data"]
+                    retryable = attempt_failed["retryable"]
+                    if not retryable:
+                        break
+                    continue
+
+                for line in chunk_lines:
+                    all_lines.append(line)
+                    yield {"event": "line", "data": {"index": line_count, "text": line}}
+                    line_count += 1
+                    percent = min(95, int(line_count / total_lines * 100))
+                    yield {"event": "progress", "data": {"percent": percent}}
+
+                model_start_index = model_index
+                # 성공한 키를 그대로 또 쓰지 않고 다음 키로 넘긴다 - 안 그러면 청크가 많은 긴
+                # 챕터에서 계속 같은 키에만 요청이 몰려 RPM(분당 요청 수) 한도에 걸리기 쉽다.
+                # 모델은 그대로 유지한다(청크마다 다른 모델을 쓰면 한 챕터 안에서 번역 톤이
+                # 달라질 수 있고, RPM 쿼터는 보통 키+모델 조합별이라 어차피 모델을 유지해도
+                # 키만 바꾸면 그 모델의 부하가 여러 키로 분산된다).
+                key_start_index = (key_index + 1) % len(keys)
+                chunk_succeeded = True
                 break
 
-        # 이 모델의 키를 모두 소진했거나(정상 루프 종료) 키 무관 오류로 중단됨 - 다음 모델로 넘어간다
+            if chunk_succeeded:
+                break
 
-    yield {"event": "error", "data": last_error or {"code": "UPSTREAM_ERROR", "message": "번역에 실패했습니다."}}
+        if not chunk_succeeded:
+            yield {"event": "error", "data": last_error or {"code": "UPSTREAM_ERROR", "message": "번역에 실패했습니다."}}
+            return
+
+    yield {"event": "progress", "data": {"percent": 100}}
+    yield {"event": "done", "data": {"translatedText": "\n".join(all_lines)}}
