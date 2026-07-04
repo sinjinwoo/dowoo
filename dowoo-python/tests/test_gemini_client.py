@@ -127,7 +127,7 @@ async def test_successful_translation_streams_lines_and_done():
     with _patch_genai_client({"key-a": client}):
         events = await _collect(translate_stream(
             api_keys=["key-a"], models=["gemini-2.5-flash"], system_prompt="s", translation_note="",
-            original_text="원문 두 줄", thinking_budget=None,
+            original_text="원문 첫 줄\n원문 둘째 줄", thinking_budget=None,
         ))
 
     assert events[0] == {"event": "start", "data": {"totalLines": 2}}
