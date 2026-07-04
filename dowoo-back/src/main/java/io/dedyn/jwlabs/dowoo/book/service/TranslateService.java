@@ -56,6 +56,14 @@ public class TranslateService {
     private static final List<String> DEFAULT_MODEL_FALLBACK =
             List.of("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.5-flash");
 
+    // 내부망 커넥션 연결이라 짧게 잡아도 충분하다.
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    // 번역 스트림 유휴(idle) 타임아웃 - 전체 응답 시간이 아니라 "이 시간 동안 새 데이터가 하나도
+    // 안 오면" 끊는다(긴 챕터는 정상적으로 몇 분씩 걸릴 수 있어 전체 시간에는 상한을 못 둠). 본문이
+    // 아주 길면 Gemini가 첫 줄을 스트리밍하기 전까지 "생각"만 하는 구간(하트비트 없음)이 몇 분씩
+    // 걸릴 수 있어 넉넉하게 잡는다(docs/troubleshooting/18 참고).
+    private static final Duration IDLE_TIMEOUT = Duration.ofSeconds(300);
+
     private final ChapterRepository chapterRepository;
     private final NovelRepository novelRepository;
     private final NovelPromptRepository novelPromptRepository;
@@ -66,7 +74,6 @@ public class TranslateService {
     private final JsonMapper objectMapper;
     private final String aiApiBaseUrl;
     private final String internalToken;
-    private final Duration idleTimeout;
 
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final ScheduledExecutorService watchdogScheduler = Executors.newSingleThreadScheduledExecutor();
@@ -74,7 +81,10 @@ public class TranslateService {
     // 번역은 스트리밍이라 전체 응답 시간에 상한을 걸 수 없으므로(긴 챕터는 정상적으로 몇 분씩 걸림),
     // connectTimeout만 짧게 걸고 "얼마나 오래 걸리는지"가 아니라 "얼마나 오래 새 데이터가 안 오는지"는
     // relaySse의 유휴(idle) 타임아웃 워치독으로 별도 처리한다.
-    private final HttpClient httpClient;
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
+            .connectTimeout(CONNECT_TIMEOUT)
+            .build();
 
     public TranslateService(
             ChapterRepository chapterRepository,
@@ -86,9 +96,7 @@ public class TranslateService {
             CurrentUserProvider currentUserProvider,
             JsonMapper objectMapper,
             @Value("${app.ai-api-base-url}") String aiApiBaseUrl,
-            @Value("${app.internal-token}") String internalToken,
-            @Value("${app.ai-api-connect-timeout-seconds}") long connectTimeoutSeconds,
-            @Value("${app.translate-idle-timeout-seconds}") long idleTimeoutSeconds) {
+            @Value("${app.internal-token}") String internalToken) {
         this.chapterRepository = chapterRepository;
         this.novelRepository = novelRepository;
         this.novelPromptRepository = novelPromptRepository;
@@ -99,11 +107,6 @@ public class TranslateService {
         this.objectMapper = objectMapper;
         this.aiApiBaseUrl = aiApiBaseUrl;
         this.internalToken = internalToken;
-        this.idleTimeout = Duration.ofSeconds(idleTimeoutSeconds);
-        this.httpClient = HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(Duration.ofSeconds(connectTimeoutSeconds))
-                .build();
     }
 
     public SseEmitter translate(UUID novelId, UUID chapterId) {
@@ -186,7 +189,7 @@ public class TranslateService {
         // 중단된 지점까지의 번역이 그대로 보이게 하기 위함.
         List<String> translatedLines = new ArrayList<>();
         ScheduledFuture<?> watchdog = watchdogScheduler.scheduleWithFixedDelay(() -> {
-            if (System.nanoTime() - lastActivityNanos.get() > idleTimeout.toNanos()) {
+            if (System.nanoTime() - lastActivityNanos.get() > IDLE_TIMEOUT.toNanos()) {
                 timedOut.set(true);
                 try {
                     response.body().close();
@@ -195,7 +198,14 @@ public class TranslateService {
             }
         }, 5, 5, TimeUnit.SECONDS);
 
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+        // BufferedReader를 try-with-resources로 감싸면 done/error 분기의 return이 암묵적으로
+        // reader.close()를 트리거하는데, 이때 발생하는 IOException(예: 원격이 이미 커넥션을 정리해
+        // close 도중 broken pipe성 예외가 나는 경우)이 아래 catch로 잡혀 "번역은 이미 성공했는데도"
+        // completeWithError가 다시 호출되는 문제가 있었다(응답이 이미 커밋된 뒤라 Spring이 "Cannot
+        // render error page ... response has already been committed"만 로그에 남기고 프론트에는
+        // network error로 보임). close()는 항상 별도로, 예외를 삼키며 수행한다.
+        BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8));
+        try {
             String eventName = null;
             StringBuilder dataBuffer = new StringBuilder();
             String line;
@@ -234,6 +244,10 @@ public class TranslateService {
             throw e;
         } finally {
             watchdog.cancel(true);
+            try {
+                reader.close();
+            } catch (IOException ignored) {
+            }
         }
         persistPartialTranslation(novelId, chapterId, translatedLines);
         emitter.complete();

@@ -18,23 +18,25 @@ import java.util.Map;
 @Component
 public class HttpCrawlClient implements CrawlClient {
 
+    // 내부망 커넥션 연결이라 짧게 잡아도 충분하다. 사용자가 배포 시 바꿀 값이 아니므로 고정한다.
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    // AI API(fetcher.py)의 크롤링 재시도 전체 소요 시간(최대 5회 x 20초 요청 + 403 백오프, 최악의
+    // 경우 약 2분)보다 넉넉하게 잡아야 정상적으로 재시도 중인 크롤링을 중간에 끊지 않는다.
+    private static final Duration READ_TIMEOUT = Duration.ofSeconds(180);
+
     private final RestClient restClient;
 
     public HttpCrawlClient(
             @Value("${app.ai-api-base-url}") String aiApiBaseUrl,
-            @Value("${app.internal-token}") String internalToken,
-            @Value("${app.crawl-connect-timeout-seconds}") long connectTimeoutSeconds,
-            @Value("${app.crawl-read-timeout-seconds}") long readTimeoutSeconds) {
+            @Value("${app.internal-token}") String internalToken) {
         // JDK HttpClient 기본값은 HTTP/2 cleartext 업그레이드를 시도하는데, uvicorn(HTTP/1.1 전용)이
         // 이를 못 알아듣고 요청 본문을 깨뜨려서 422가 난다. HTTP/1.1로 고정해서 우회한다.
         HttpClient jdkHttpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(Duration.ofSeconds(connectTimeoutSeconds))
+                .connectTimeout(CONNECT_TIMEOUT)
                 .build();
-        // readTimeout은 AI API(fetcher.py)의 크롤링 재시도 전체 소요 시간(최대 5회 x 20초 요청
-        // + 403 백오프)보다 넉넉하게 잡아야, 정상적으로 재시도 중인 크롤링을 중간에 끊지 않는다.
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(jdkHttpClient);
-        requestFactory.setReadTimeout(Duration.ofSeconds(readTimeoutSeconds));
+        requestFactory.setReadTimeout(READ_TIMEOUT);
         this.restClient = RestClient.builder()
                 .baseUrl(aiApiBaseUrl)
                 .defaultHeader("X-Internal-Token", internalToken)

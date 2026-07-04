@@ -1,3 +1,6 @@
+# 개발/소스 빌드용 Compose 파일. 소스를 고쳐가며 로컬에서 이미지를 직접 빌드해 띄울 때 쓴다
+# ("docker compose up --build -d"). 미리 빌드된 이미지를 받아서 쓰는 배포용 설정은
+# docker-compose.prod.yml과 README의 "배포(사용자용)" 섹션을 참고.
 services:
   postgres:
     image: postgres:16-alpine
@@ -14,7 +17,7 @@ services:
       timeout: 5s
       retries: 10
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     networks:
       - dowoo-net
 
@@ -33,20 +36,13 @@ services:
       AI_API_BASE_URL: http://ai-api:8000
       API_KEY_ENCRYPTION_SECRET: ${API_KEY_ENCRYPTION_SECRET:-0123456789abcdef0123456789abcdef}
       JWT_SECRET: ${JWT_SECRET:-dev-only-jwt-secret-change-me-0123456789}
-      JWT_ACCESS_TOKEN_VALIDITY_SECONDS: ${JWT_ACCESS_TOKEN_VALIDITY_SECONDS:-1800}
-      REFRESH_TOKEN_VALIDITY_DAYS: ${REFRESH_TOKEN_VALIDITY_DAYS:-14}
-      COOKIE_SECURE: ${COOKIE_SECURE:-false}
-      AI_API_CONNECT_TIMEOUT_SECONDS: ${AI_API_CONNECT_TIMEOUT_SECONDS:-10}
-      CRAWL_CONNECT_TIMEOUT_SECONDS: ${CRAWL_CONNECT_TIMEOUT_SECONDS:-10}
-      CRAWL_READ_TIMEOUT_SECONDS: ${CRAWL_READ_TIMEOUT_SECONDS:-180}
-      TRANSLATE_IDLE_TIMEOUT_SECONDS: ${TRANSLATE_IDLE_TIMEOUT_SECONDS:-90}
     depends_on:
       postgres:
         condition: service_healthy
       ai-api:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "${CORE_API_PORT:-8080}:8080"
     networks:
       - dowoo-net
 

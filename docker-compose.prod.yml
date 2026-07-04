@@ -1,0 +1,62 @@
+# 사용자 배포용 Compose 파일 - 소스를 빌드하지 않고 도커허브에 미리 빌드된 이미지를 받아서 쓴다.
+# 사용법은 README의 "사용법(빠른 시작)" 섹션 참고 - 이 파일 내용을 그대로 docker-compose.yml로
+# 저장해서 쓰는 것을 권장한다(-f 옵션 없이 그냥 docker compose up -d로 실행하기 위함).
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # 의도적으로 호스트에 포트를 노출하지 않음 - core-api만 dowoo-net 내부에서 접근 가능.
+    # DB 클라이언트로 직접 붙어야 하면 `docker compose -f docker-compose.prod.yml exec postgres psql ...`
+    # 또는 필요할 때만 임시로 ports를 추가해서 쓸 것.
+    networks:
+      - dowoo-net
+
+  core-api:
+    image: sjw0066/dowoo:${DOWOO_IMAGE_TAG}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # 같은 compose에 있는 postgres/ai-api 서비스를 가리키는 고정값이라 사용자가 바꿀 필요 없음.
+      DB_HOST: postgres
+      DB_PORT: 5432
+      AI_API_BASE_URL: http://ai-api:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai-api:
+        condition: service_healthy
+    ports:
+      - "${CORE_API_PORT}:8080"
+    networks:
+      - dowoo-net
+
+  ai-api:
+    image: sjw0066/dowoo-ai:${DOWOO_IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - dowoo-net
+
+networks:
+  dowoo-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
