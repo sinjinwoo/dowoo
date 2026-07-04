@@ -147,6 +147,54 @@ docker compose down -v             # DB 데이터까지 완전히 삭제
 
 **업데이트/롤백**은 새로 `pull` + `up -d`하면 된다. 문제가 생기면 `.env`의 `DOWOO_IMAGE_TAG`를 이전 버전(예: `1.0.0`, 도커허브 태그 목록에서 확인)으로 바꾸고 다시 `pull` + `up -d`.
 
+## 도메인 연결 (nginx 리버스 프록시)
+
+`CORE_API_PORT`를 외부에 직접 노출하지 않고, 도메인 + HTTPS로 서비스하고 싶다면 nginx를 앞단에 두면 된다. 인증서는 [Let's Encrypt](https://letsencrypt.org/)(certbot) 등으로 미리 발급받아뒀다고 가정한다.
+
+번역 스트리밍이 SSE(Server-Sent Events)로 동작하기 때문에, 아래 설정 중 버퍼링/타임아웃 관련 지시어는 빠뜨리지 말 것 - 없으면 번역 중간에 스트림이 끊기거나 응답이 뭉쳐서 한 번에 온다.
+
+```nginx
+# HTTP -> HTTPS 리다이렉트
+server {
+    listen 80;
+    server_name <your-domain>;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name <your-domain>;
+
+    ssl_certificate     /etc/letsencrypt/live/<your-domain>/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/<your-domain>/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;   # CORE_API_PORT와 일치시킬 것
+
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $remote_addr;
+
+        # SSE(번역 스트리밍)가 끊기지 않도록 버퍼링을 끈다
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+        proxy_set_header Connection "";
+
+        proxy_read_timeout 3600;
+        proxy_send_timeout 3600;
+    }
+}
+```
+
+- `proxy_pass`의 포트는 `.env`의 `CORE_API_PORT`와 반드시 일치해야 한다.
+- `X-Forwarded-Proto $scheme`는 필수다 - Core API가 이 헤더로 요청이 HTTPS인지 판단해서 로그인 refresh 토큰 쿠키에 `Secure` 플래그를 붙인다. 빠뜨리면 HTTPS로 접속해도 로그인 유지가 안 될 수 있다.
+- 설정을 바꾼 뒤에는 `nginx -t`로 문법 검사 후 `systemctl reload nginx`(또는 `nginx -s reload`).
+
 ## 로컬 개발 / 소스 빌드 (테스트 환경)
 
 아래는 소스를 직접 고치거나 테스트할 때만 필요하다. 일반 사용자는 위 "사용법 (빠른 시작)" 섹션만 보면 된다.
