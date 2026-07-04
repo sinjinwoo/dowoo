@@ -8,6 +8,7 @@ import io.dedyn.jwlabs.dowoo.settings.crypto.ApiKeyCipher;
 import io.dedyn.jwlabs.dowoo.settings.dto.ApiSettingsResponse;
 import io.dedyn.jwlabs.dowoo.settings.dto.ApiSettingsUpdateRequest;
 import io.dedyn.jwlabs.dowoo.settings.entity.ApiKey;
+import io.dedyn.jwlabs.dowoo.settings.entity.ApiKeySetting;
 import io.dedyn.jwlabs.dowoo.settings.repository.ApiKeyRepository;
 import io.dedyn.jwlabs.dowoo.settings.repository.ApiKeySettingRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +23,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -117,7 +119,15 @@ class ApiKeySettingsServiceTest {
 
     @Test
     void replace_nullApiKeys_onlyUpdatesModelAndKeepsExistingKeys() {
-        when(apiKeySettingRepository.findByUserId(USER_ID)).thenReturn(Optional.empty());
+        // replace()가 findByUserId -> save -> (get() 안에서) findByUserId를 다시 호출하는 구조라,
+        // 단순히 findByUserId를 매번 empty로 고정하면 save한 내용이 반영 안 된 것처럼 보인다(직전 실패 원인).
+        // save될 때 그 값을 기억했다가 이후 findByUserId 호출에서 그대로 돌려주는 fake로 대체한다.
+        AtomicReference<ApiKeySetting> saved = new AtomicReference<>();
+        when(apiKeySettingRepository.findByUserId(USER_ID)).thenAnswer(inv -> Optional.ofNullable(saved.get()));
+        when(apiKeySettingRepository.save(any(ApiKeySetting.class))).thenAnswer(inv -> {
+            saved.set(inv.getArgument(0));
+            return inv.getArgument(0);
+        });
         when(apiKeyRepository.findByUserIdOrderByKeyOrderAsc(USER_ID)).thenReturn(List.of());
 
         ApiSettingsResponse response = service.replace(new ApiSettingsUpdateRequest(null, "gemini-2.5-pro", 1024));
