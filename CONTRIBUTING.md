@@ -22,6 +22,7 @@
 4. 본 저장소의 `develop` 브랜치를 대상으로 Pull Request를 생성합니다.
 5. PR 작성 시 [PR 템플릿](.github/pull_request_template.md)을 작성해 주세요. 특히 **변경 이유**와 **영향받는 컴포넌트**를 함께 작성해 주시면 리뷰에 큰 도움이 됩니다.
 6. Dockerfile, `docker-compose`, 환경변수 등 **배포 이미지에 영향을 주는 변경**이 포함되어 있다면 PR 설명에 함께 적어 주세요.
+7. PR을 열면 `.github/workflows/ci.yml`이 자동으로 Core API(JUnit)/AI API(pytest) 테스트와 프론트 lint를 돌립니다 - 실패하면 병합 전에 고쳐주세요. 로직을 고쳤다면(특히 버그 수정) 가능한 한 재현 테스트를 같이 추가해 주세요.
 
 > **참고**
 >
