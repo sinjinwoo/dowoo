@@ -13,6 +13,7 @@ export interface SettingsDrawerProps {
   apiKeys: MaskedApiKey[]
   onModelChange: (model: string) => void
   onAddApiKey: (key: string) => void
+  onAddApiKeys: (keys: string[]) => void
   onDeleteApiKey: (keyId: string) => void
   theme: ThemeSettings
   onThemeChange: (theme: ThemeSettings) => void
@@ -28,6 +29,7 @@ export default function SettingsDrawer({
   apiKeys,
   onModelChange,
   onAddApiKey,
+  onAddApiKeys,
   onDeleteApiKey,
   theme,
   onThemeChange,
@@ -52,6 +54,7 @@ export default function SettingsDrawer({
                 apiKeys={apiKeys}
                 onModelChange={onModelChange}
                 onAddKey={onAddApiKey}
+                onAddKeys={onAddApiKeys}
                 onDeleteKey={onDeleteApiKey}
               />
             ),

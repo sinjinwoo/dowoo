@@ -4,6 +4,8 @@
   --font-sans: "Pretendard", system-ui, "Segoe UI", Roboto, sans-serif;
   --color-accent: #aa3bff;
   --color-accent-dark: #c084fc;
+  /* 사용자 테마(뷰어 본문)가 적용되지 않는 앱 UI 크롬 배경색 */
+  --color-chrome: #faf5ff;
 }
 
 :root {

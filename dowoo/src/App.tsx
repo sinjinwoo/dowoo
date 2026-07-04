@@ -6,6 +6,8 @@ import NovelViewer from './components/viewer/NovelViewer'
 import SettingsDrawer from './components/settings/SettingsDrawer'
 import LibraryDrawer from './components/library/LibraryDrawer'
 import ErrorModal from './components/ui/ErrorModal'
+import AuthScreen from './components/auth/AuthScreen'
+import { useAuth } from './auth/AuthContext'
 import { API_BASE } from './api/client'
 import {
   listNovels,
@@ -16,12 +18,14 @@ import {
   updateLastRead,
   exportNovelUrl,
   readSource,
+  crawlUrl,
 } from './api/novels'
-import { getChapter } from './api/chapters'
+import { getChapter, createChapter } from './api/chapters'
 import {
   getApiSettings,
   saveModelSettings,
   addApiKey,
+  addApiKeys,
   deleteApiKey,
   getTheme,
   saveTheme,
@@ -40,6 +44,7 @@ import type { Novel, NovelDetail, Chapter } from './types/novel'
 type TranslationError = { type: 'crawling' | 'gemini'; message: string }
 
 function App() {
+  const { status: authStatus, logout } = useAuth()
   const [isLoading, setIsLoading] = useState(true)
   const [novels, setNovels] = useState<Novel[]>([])
   const [activeNovelDetail, setActiveNovelDetail] = useState<NovelDetail | null>(null)
@@ -72,7 +77,10 @@ function App() {
   }
 
   // 초기 로딩: 서재/설정/테마를 병렬로 가져오고, 마지막 세션(localStorage)이 있으면 이어서 연다.
+  // 로그인이 완료된 뒤에만(재로그인 포함) 실행한다.
   useEffect(() => {
+    if (authStatus !== 'authenticated') return
+    setIsLoading(true)
     void (async () => {
       try {
         const [novelList, settings, themeData, presets] = await Promise.all([
@@ -101,7 +109,8 @@ function App() {
         setIsLoading(false)
       }
     })()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authStatus])
 
   // 활성 소설/챕터 인덱스가 바뀌면 해당 챕터 본문을 불러온다.
   useEffect(() => {
@@ -228,6 +237,52 @@ function App() {
     }
   }
 
+  // 이전/다음편: 이미 알고 있는(캐시된) 챕터면 바로 이동하고, 없으면 chapter.prevUrl/nextUrl을
+  // 직접 크롤링(6.1) + 챕터 생성(3.2)한다. /read(6.2)는 캐시 미스 시 새 소설을 만들어버리므로 쓰지 않는다.
+  // 번역 진행 중에도 이동 가능 - 떠나는 챕터의 스트림은 중지 버튼과 동일하게 취소한다(서버가 그때까지
+  // 번역된 부분을 저장해두므로 나중에 이 챕터로 돌아오면 중단 지점까지는 그대로 남아 있다).
+  const handleNavigateChapter = async (direction: 'prev' | 'next') => {
+    if (!activeNovelDetail || !activeChapter) return
+    abortControllerRef.current?.abort()
+    const targetUrl = direction === 'prev' ? activeChapter.prevUrl : activeChapter.nextUrl
+    if (!targetUrl) {
+      setTranslationError({
+        type: 'crawling',
+        message: direction === 'prev' ? '이전 편이 없습니다.' : '다음 편이 없습니다.',
+      })
+      return
+    }
+
+    const cachedIndex = activeNovelDetail.chapters.findIndex((c) => c.sourceUrl === targetUrl)
+    if (cachedIndex !== -1) {
+      setCurrentChapterIndex(cachedIndex)
+      return
+    }
+
+    setTranslationError(null)
+    try {
+      const crawled = await crawlUrl(targetUrl)
+      const chapter = await createChapter(activeNovelDetail.id, {
+        sourceUrl: targetUrl,
+        title: crawled.title,
+        originalText: crawled.content,
+        prevUrl: crawled.prevUrl,
+        nextUrl: crawled.nextUrl,
+      })
+      const detail = await getNovelDetail(activeNovelDetail.id)
+      setActiveNovelDetail(detail)
+      const index = detail.chapters.findIndex((c) => c.id === chapter.id)
+      setCurrentChapterIndex(index >= 0 ? index : currentChapterIndex)
+      setActiveChapter(chapter)
+      void handleTranslate(activeNovelDetail.id, chapter.id)
+    } catch (error) {
+      setTranslationError({
+        type: 'crawling',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
   const handleSelectNovel = async (novel: Novel) => {
     await openNovelDetail(novel.id, novel.lastReadChapterIndex ?? 0)
     setIsLibraryOpen(false)
@@ -270,6 +325,14 @@ function App() {
     link.click()
   }
 
+  if (authStatus === 'loading') {
+    return <div className="flex min-h-screen items-center justify-center text-gray-500">불러오는 중...</div>
+  }
+
+  if (authStatus === 'unauthenticated') {
+    return <AuthScreen />
+  }
+
   if (isLoading) {
     return <div className="flex min-h-screen items-center justify-center text-gray-500">불러오는 중...</div>
   }
@@ -291,6 +354,7 @@ function App() {
           hidden={topBarHidden}
           isTranslating={translationStatus === 'translating'}
           onCancelTranslation={handleCancelTranslation}
+          onLogout={() => void logout()}
         />
       }
       topBarHidden={topBarHidden}
@@ -308,10 +372,8 @@ function App() {
           />
 
           <ChapterNavBar
-            onPrevChapter={() => setCurrentChapterIndex((i) => Math.max(0, i - 1))}
-            onNextChapter={() =>
-              setCurrentChapterIndex((i) => Math.min(activeNovelDetail.chapters.length - 1, i + 1))
-            }
+            onPrevChapter={() => void handleNavigateChapter('prev')}
+            onNextChapter={() => void handleNavigateChapter('next')}
           />
         </>
       ) : activeNovelDetail ? (
@@ -335,6 +397,7 @@ function App() {
         apiKeys={apiSettings.apiKeys}
         onModelChange={(model) => void saveModelSettings(model, apiSettings.thinkingBudget ?? undefined).then(setApiSettings)}
         onAddApiKey={(key) => void addApiKey(key).then(setApiSettings)}
+        onAddApiKeys={(keys) => void addApiKeys(keys).then(setApiSettings)}
         onDeleteApiKey={(keyId) => {
           void deleteApiKey(keyId)
           setApiSettings((prev) => ({ ...prev, apiKeys: prev.apiKeys.filter((k) => k.id !== keyId) }))

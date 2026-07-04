@@ -11,6 +11,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.Map;
 
 /** api-spec.md §9.1 위임 - AI API(FastAPI)의 POST /internal/crawl을 호출한다. */
@@ -21,14 +22,23 @@ public class HttpCrawlClient implements CrawlClient {
 
     public HttpCrawlClient(
             @Value("${app.ai-api-base-url}") String aiApiBaseUrl,
-            @Value("${app.internal-token}") String internalToken) {
+            @Value("${app.internal-token}") String internalToken,
+            @Value("${app.crawl-connect-timeout-seconds}") long connectTimeoutSeconds,
+            @Value("${app.crawl-read-timeout-seconds}") long readTimeoutSeconds) {
         // JDK HttpClient 기본값은 HTTP/2 cleartext 업그레이드를 시도하는데, uvicorn(HTTP/1.1 전용)이
         // 이를 못 알아듣고 요청 본문을 깨뜨려서 422가 난다. HTTP/1.1로 고정해서 우회한다.
-        HttpClient jdkHttpClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
+        HttpClient jdkHttpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(connectTimeoutSeconds))
+                .build();
+        // readTimeout은 AI API(fetcher.py)의 크롤링 재시도 전체 소요 시간(최대 5회 x 20초 요청
+        // + 403 백오프)보다 넉넉하게 잡아야, 정상적으로 재시도 중인 크롤링을 중간에 끊지 않는다.
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(jdkHttpClient);
+        requestFactory.setReadTimeout(Duration.ofSeconds(readTimeoutSeconds));
         this.restClient = RestClient.builder()
                 .baseUrl(aiApiBaseUrl)
                 .defaultHeader("X-Internal-Token", internalToken)
-                .requestFactory(new JdkClientHttpRequestFactory(jdkHttpClient))
+                .requestFactory(requestFactory)
                 .build();
     }
 

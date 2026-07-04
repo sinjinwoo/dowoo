@@ -36,7 +36,7 @@ export default function ThemeSettingsPanel({
       <Select
         label="폰트"
         value={theme.fontFamily}
-        options={fontOptions}
+        options={fontOptions.map((option) => ({ ...option, style: { fontFamily: option.value } }))}
         onChange={(value) => set('fontFamily', value)}
       />
 
