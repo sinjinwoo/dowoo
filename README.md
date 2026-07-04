@@ -6,7 +6,7 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/sjw0066/dowoo.svg)](https://hub.docker.com/r/sjw0066/dowoo)
 [![Docker Image Version](https://img.shields.io/docker/v/sjw0066/dowoo?sort=semver&label=version)](https://hub.docker.com/r/sjw0066/dowoo/tags)
 
-사용자가 직접 Google Gemini API 키와 웹소설 사이트 주소(또는 텍스트)를 입력하면, AI가 실시간으로 번역해서 보여주는 셀프호스팅 웹소설 리더.
+사용자가 직접 Google Gemini API 키와 웹소설 사이트 주소(또는 텍스트)를 입력하면, AI가 실시간으로 번역해서 보여주는 셀프호스팅 웹소설 리더. 
 
 [syosetu.colomo.dev](https://syosetu.colomo.dev/)를 참고해 기능을 발전시켜 개발 중.
 
