@@ -22,6 +22,14 @@
 - **원문 대조**: 번역 문단을 클릭하면 원문이 작은 글씨로 펼쳐짐
 - **모바일 최적화**: 반응형 햄버거 메뉴, 스크롤/탭으로 상단바 숨김·노출
 
+## 스크린샷
+
+| 뷰어 | 서재 |
+| --- | --- |
+| ![기본 뷰어창](images/viewer.png) | ![서재 및 챕터선택](images/library-chapter-select.png) |
+
+더 많은 화면은 [`docs/screenshots.md`](docs/screenshots.md) 참고 (로그인/회원가입, API 키 관리, 테마 설정 등).
+
 ## 지원 사이트
 
 - ixdzs8.com
