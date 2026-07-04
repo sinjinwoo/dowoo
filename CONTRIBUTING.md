@@ -16,11 +16,16 @@
 
 ## 🔀 Pull Request 절차
 
-1. `main`에서 새 브랜치를 만듭니다.
-2. 변경 사항을 커밋합니다.
-3. PR을 열 때 [PR 템플릿](.github/pull_request_template.md)의 항목을 채워주세요 - 특히 "왜 이 변경이 필요한지"와 "어떤 컴포넌트가 영향받는지"는 리뷰에 꼭 필요합니다.
-4. 배포 이미지에 영향을 주는 변경(Dockerfile, docker-compose, 환경변수 등)이라면 PR 설명에 그 사실을 명시해주세요.
-5. `v1.0.0` 같은 버전 태그를 `main`에 push하면 GitHub Actions가 자동으로 도커허브에 이미지를 빌드/배포합니다 (`.github/workflows/docker-publish.yml`) - 일반 PR 머지만으로는 배포되지 않습니다. `latest`와 그 버전 태그 두 개가 함께 올라가며, 동작하려면 저장소 Settings → Secrets에 `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`이 등록되어 있어야 합니다.
+1. 이 저장소를 **Fork**합니다.
+2. Fork한 저장소의 `develop` 브랜치에서 새 브랜치를 생성합니다.
+3. 변경 사항을 커밋하고 자신의 Fork에 Push합니다.
+4. 본 저장소의 `develop` 브랜치를 대상으로 Pull Request를 생성합니다.
+5. PR 작성 시 [PR 템플릿](.github/pull_request_template.md)을 작성해 주세요. 특히 **변경 이유**와 **영향받는 컴포넌트**를 함께 작성해 주시면 리뷰에 큰 도움이 됩니다.
+6. Dockerfile, `docker-compose`, 환경변수 등 **배포 이미지에 영향을 주는 변경**이 포함되어 있다면 PR 설명에 함께 적어 주세요.
+
+> **참고**
+>
+> Docker Hub 이미지는 일반 PR 머지나 `develop` 브랜치 Push만으로는 배포되지 않습니다. Maintainer가 `main` 브랜치에 `v1.0.0`과 같은 버전 태그를 Push하면 GitHub Actions가 Docker 이미지를 빌드하여 `latest`와 해당 버전 태그로 배포합니다.
 
 ## 🐞 이슈 리포트
 
