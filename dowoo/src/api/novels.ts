@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatch, apiPost } from './client'
+import { apiDelete, apiDownload, apiGet, apiPatch, apiPost } from './client'
 import type { Novel, NovelDetail, ReadResult } from '../types/novel'
 
 export const listNovels = (keyword?: string) =>
@@ -18,8 +18,22 @@ export const reorderNovels = (orderedIds: string[]) => apiPatch<void>('/api/v1/n
 export const updateLastRead = (novelId: string, lastReadChapterIndex: number, lastReadScrollPos?: number) =>
   apiPatch<void>(`/api/v1/novels/${novelId}/last-read`, { lastReadChapterIndex, lastReadScrollPos })
 
-export const exportNovelUrl = (novelId: string, lang: 'translated' | 'original' | 'both' = 'translated') =>
-  `/api/v1/novels/${novelId}/export?lang=${lang}`
+// 다운로드 버튼은 단순 <a href> 이동이 아니라 인증 헤더가 실린 fetch로 받아와야 한다 -
+// 이 앱은 Authorization 헤더로 인증하는데, 브라우저의 순수 네비게이션은 그 헤더를 붙이지 않아 401이 난다.
+export const downloadNovelExport = async (
+  novelId: string,
+  lang: 'translated' | 'original' | 'both' = 'translated'
+): Promise<void> => {
+  const { blob, filename } = await apiDownload(`/api/v1/novels/${novelId}/export?lang=${lang}`)
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename ?? 'novel.txt'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
 
 export const readSource = (input: { sourceUrl?: string; pastedText?: string; forceRecrawl?: boolean }) =>
   apiPost<ReadResult>('/api/v1/read', input)
