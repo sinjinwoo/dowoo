@@ -17,6 +17,8 @@ public interface NovelRepository extends JpaRepository<Novel, UUID> {
 
     boolean existsByUserIdAndSourceUrl(UUID userId, String sourceUrl);
 
+    Optional<Novel> findByUserIdAndSiteNameAndSourceBookId(UUID userId, String siteName, String sourceBookId);
+
     long countByUserId(UUID userId);
 
     @Query("select n from Novel n where n.user.id = :userId and (" +

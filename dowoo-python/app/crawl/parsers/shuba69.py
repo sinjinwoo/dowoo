@@ -1,18 +1,25 @@
 import re
+from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
 from app.crawl.parsers.shuba_family import extract_bookinfo
 
+SOURCE_SITE = "69shuba.com"
+
 BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
 MULTI_NEWLINE_RE = re.compile(r"\n{3,}")
 REMOVE_SELECTOR = "h1, .txtinfo, #txtright, .contentadv, .bottom-ad, .page1, script, ins"
 
-# 첫 장/마지막 장에서는 이전/다음 링크가 실제 회차가 아니라 목차 페이지(book/{bookId}.html)를 가리킨다.
-NO_CHAPTER_RE = re.compile(r"/book/\d+\.html$")
+# 첫 장/마지막 장에서는 이전/다음 링크가 실제 회차가 아니라 목차 페이지(book/{bookId}.htm 또는 .html)를
+# 가리킨다. 확장자가 .htm/.html 중 어느 쪽인지 매번 헷갈렸던 지점이라 둘 다 매치하도록 둔다.
+NO_CHAPTER_RE = re.compile(r"/book/\d+\.html?$")
+
+# 회차 URL 경로(/txt/{bookId}/{chapterId})에서 책 ID를 뽑는다.
+BOOK_ID_RE = re.compile(r"^/txt/(\d+)/")
 
 
-def parse_69shuba(html: str) -> dict:
+def parse_69shuba(html: str, url: str) -> dict:
     bookinfo = extract_bookinfo(html)
     soup = BeautifulSoup(html, "html.parser")
 
@@ -39,10 +46,14 @@ def parse_69shuba(html: str) -> dict:
     if next_url and NO_CHAPTER_RE.search(next_url):
         next_url = None
 
+    book_id_match = BOOK_ID_RE.match(urlparse(url).path)
+
     return {
         "title": title,
         "book_title": bookinfo["articlename"] or None,
         "content": text,
         "prev": prev_url,
         "next": next_url,
+        "source_site": SOURCE_SITE,
+        "source_book_id": book_id_match.group(1) if book_id_match else None,
     }

@@ -41,7 +41,7 @@ async def crawl_chapter(url: str) -> dict:
         raise CrawlError("UNSUPPORTED_SITE", 400, f"지원하지 않는 사이트입니다: {parsed.hostname}")
 
     html = await entry["fetch"](url)
-    raw = entry["parser"](html)
+    raw = entry["parser"](html, url)
 
     if not raw.get("title") and not raw.get("content"):
         raise CrawlError("PARSE_FAILED", 502, "본문/제목을 추출하지 못했습니다(사이트 마크업 변경 추정).")
@@ -52,5 +52,8 @@ async def crawl_chapter(url: str) -> dict:
         "content": raw["content"],
         "prevUrl": _resolve_relative(raw.get("prev"), url),
         "nextUrl": _resolve_relative(raw.get("next"), url),
-        "siteName": site_key,
+        # 파서가 스스로 밝힌 사이트/책 ID를 그대로 쓴다 - 새 사이트를 추가할 때 이 함수를
+        # 손댈 필요 없이 파서만 구현하면 되도록, 사이트 식별 책임을 파서 쪽에 둔다.
+        "siteName": raw.get("source_site") or site_key,
+        "sourceBookId": raw.get("source_book_id"),
     }
