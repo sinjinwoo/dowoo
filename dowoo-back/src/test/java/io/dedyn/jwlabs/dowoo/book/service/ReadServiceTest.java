@@ -25,6 +25,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -95,11 +96,14 @@ class ReadServiceTest {
     @Test
     void read_newSourceUrl_crawlsAndCreatesNovelAndChapter() {
         String sourceUrl = "https://ixdzs8.com/read/1/p1.html";
-        CrawlResult crawled = new CrawlResult("1화", "이세계 이야기", "원문 본문", null, "https://ixdzs8.com/read/1/p2.html", "ixdzs8.com");
+        CrawlResult crawled = new CrawlResult(
+                "1화", "이세계 이야기", "원문 본문", null, "https://ixdzs8.com/read/1/p2.html", "ixdzs8.com", "1");
 
         when(currentUserProvider.currentUserId()).thenReturn(USER_ID);
         when(chapterRepository.findBySourceUrlAndNovel_UserId(sourceUrl, USER_ID)).thenReturn(Optional.empty());
         when(crawlClient.crawl(sourceUrl)).thenReturn(crawled);
+        when(novelRepository.findByUserIdAndSiteNameAndSourceBookId(USER_ID, "ixdzs8.com", "1"))
+                .thenReturn(Optional.empty());
         when(userRepository.getReferenceById(USER_ID)).thenReturn(mock(User.class));
         when(novelRepository.countByUserId(USER_ID)).thenReturn(0L);
         when(novelRepository.save(any(Novel.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -113,6 +117,28 @@ class ReadServiceTest {
     }
 
     @Test
+    void read_newChapterUrlMatchingExistingNovelBookId_attachesToExistingNovelInsteadOfCreatingNew() {
+        String sourceUrl = "https://ixdzs8.com/read/1/p300.html";
+        Novel existingNovel = novelWithId(UUID.randomUUID());
+        CrawlResult crawled = new CrawlResult(
+                "300화", "이세계 이야기", "300화 원문", "https://ixdzs8.com/read/1/p299.html", null, "ixdzs8.com", "1");
+
+        when(currentUserProvider.currentUserId()).thenReturn(USER_ID);
+        when(chapterRepository.findBySourceUrlAndNovel_UserId(sourceUrl, USER_ID)).thenReturn(Optional.empty());
+        when(crawlClient.crawl(sourceUrl)).thenReturn(crawled);
+        when(novelRepository.findByUserIdAndSiteNameAndSourceBookId(USER_ID, "ixdzs8.com", "1"))
+                .thenReturn(Optional.of(existingNovel));
+        when(chapterRepository.countByNovelId(existingNovel.getId())).thenReturn(299L);
+        when(chapterRepository.save(any(Chapter.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ReadResponse response = readService.read(new ReadRequest(sourceUrl, null, false));
+
+        assertEquals(existingNovel.getId(), response.novelId());
+        verify(novelRepository, never()).save(any(Novel.class));
+        verify(chapterRepository).save(argThat(c -> c.getNovel() == existingNovel && c.getChapterIndex() == 299));
+    }
+
+    @Test
     void read_forceRecrawlExistingChapter_updatesChapterButDoesNotCreateNewNovel() {
         String sourceUrl = "https://ixdzs8.com/read/1/p1.html";
         Novel novel = novelWithId(UUID.randomUUID());
@@ -121,7 +147,7 @@ class ReadServiceTest {
         chapter.setNovel(novel);
         chapter.setOriginalText("옛날 원문");
         chapter.setTranslatedText("옛날 번역");
-        CrawlResult recrawled = new CrawlResult("1화", "이세계 이야기", "새 원문", null, null, "ixdzs8.com");
+        CrawlResult recrawled = new CrawlResult("1화", "이세계 이야기", "새 원문", null, null, "ixdzs8.com", "1");
 
         when(currentUserProvider.currentUserId()).thenReturn(USER_ID);
         when(chapterRepository.findBySourceUrlAndNovel_UserId(sourceUrl, USER_ID)).thenReturn(Optional.of(chapter));

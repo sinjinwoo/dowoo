@@ -1,8 +1,11 @@
 import re
+from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
 from app.crawl.parsers.shuba_family import extract_bookinfo
+
+SOURCE_SITE = "twkan.com"
 
 BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
 MULTI_NEWLINE_RE = re.compile(r"\n{3,}")
@@ -13,8 +16,11 @@ REMOVE_SELECTOR = "script, ins, .contentadv, .bottom-ad"
 NO_PREV_CHAPTER_RE = re.compile(r"/book/\d+/index\.html$")
 NO_NEXT_CHAPTER_RE = re.compile(r"/txt/\d+/end\.html$")
 
+# 회차 URL 경로(/txt/{bookId}/{chapterId}.html)에서 책 ID를 뽑는다.
+BOOK_ID_RE = re.compile(r"^/txt/(\d+)/")
 
-def parse_twkan(html: str) -> dict:
+
+def parse_twkan(html: str, url: str) -> dict:
     bookinfo = extract_bookinfo(html)
     soup = BeautifulSoup(html, "html.parser")
 
@@ -36,10 +42,14 @@ def parse_twkan(html: str) -> dict:
     if next_url and NO_NEXT_CHAPTER_RE.search(next_url):
         next_url = None
 
+    book_id_match = BOOK_ID_RE.match(urlparse(url).path)
+
     return {
         "title": bookinfo["chaptername"],
         "book_title": bookinfo["articlename"] or None,
         "content": text,
         "prev": prev_url,
         "next": next_url,
+        "source_site": SOURCE_SITE,
+        "source_book_id": book_id_match.group(1) if book_id_match else None,
     }

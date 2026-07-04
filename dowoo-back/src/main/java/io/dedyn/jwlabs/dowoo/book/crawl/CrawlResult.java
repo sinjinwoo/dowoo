@@ -6,6 +6,7 @@ public record CrawlResult(
         String content,
         String prevUrl,
         String nextUrl,
-        String siteName
+        String siteName,
+        String sourceBookId
 ) {
 }

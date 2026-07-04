@@ -82,21 +82,33 @@ public class ReadService {
         OffsetDateTime now = OffsetDateTime.now();
         User userRef = userRepository.getReferenceById(userId);
 
-        Novel novel = new Novel();
-        novel.setUser(userRef);
-        novel.setTitle(resolveNovelTitle(crawled, sourceUrl));
-        novel.setSourceUrl(sourceUrl);
-        novel.setSiteName(crawled.siteName());
-        novel.setOrderIndex((int) novelRepository.countByUserId(userId));
-        novel.setCreatedAt(now);
-        novel.setUpdatedAt(now);
-        novel = novelRepository.save(novel);
+        // 같은 책의 다른 회차를 이미 서재에 갖고 있다면(예: 1화만 읽다가 300화 주소로 바로 진입) 새
+        // 소설을 만들지 않고 기존 소설에 챕터만 추가한다. 사이트별 책 ID 추출은 각 파서의 책임이라
+        // 여기서는 크롤링 결과의 (siteName, sourceBookId)만 보면 된다 - 새 사이트가 추가돼도 이 로직은
+        // 그대로다.
+        Novel novel = StringUtils.hasText(crawled.sourceBookId())
+                ? novelRepository.findByUserIdAndSiteNameAndSourceBookId(userId, crawled.siteName(), crawled.sourceBookId())
+                        .orElse(null)
+                : null;
 
-        NovelPrompt prompt = new NovelPrompt();
-        prompt.setNovel(novel);
-        prompt.setSystemPrompt(DefaultPrompts.SYSTEM_PROMPT);
-        prompt.setUpdatedAt(now);
-        novelPromptRepository.save(prompt);
+        if (novel == null) {
+            novel = new Novel();
+            novel.setUser(userRef);
+            novel.setTitle(resolveNovelTitle(crawled, sourceUrl));
+            novel.setSourceUrl(sourceUrl);
+            novel.setSiteName(crawled.siteName());
+            novel.setSourceBookId(crawled.sourceBookId());
+            novel.setOrderIndex((int) novelRepository.countByUserId(userId));
+            novel.setCreatedAt(now);
+            novel.setUpdatedAt(now);
+            novel = novelRepository.save(novel);
+
+            NovelPrompt prompt = new NovelPrompt();
+            prompt.setNovel(novel);
+            prompt.setSystemPrompt(DefaultPrompts.SYSTEM_PROMPT);
+            prompt.setUpdatedAt(now);
+            novelPromptRepository.save(prompt);
+        }
 
         Chapter chapter = new Chapter();
         chapter.setNovel(novel);
@@ -106,7 +118,7 @@ public class ReadService {
         chapter.setTranslatedText("");
         chapter.setPrevUrl(crawled.prevUrl());
         chapter.setNextUrl(crawled.nextUrl());
-        chapter.setChapterIndex(0);
+        chapter.setChapterIndex((int) chapterRepository.countByNovelId(novel.getId()));
         chapter.setCreatedAt(now);
         chapter.setUpdatedAt(now);
         chapter = chapterRepository.save(chapter);

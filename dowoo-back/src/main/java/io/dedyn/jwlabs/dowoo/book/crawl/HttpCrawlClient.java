@@ -74,7 +74,8 @@ public class HttpCrawlClient implements CrawlClient {
                 (String) data.get("content"),
                 (String) data.get("prevUrl"),
                 (String) data.get("nextUrl"),
-                (String) data.get("siteName"));
+                (String) data.get("siteName"),
+                (String) data.get("sourceBookId"));
     }
 
     @SuppressWarnings("unchecked")
