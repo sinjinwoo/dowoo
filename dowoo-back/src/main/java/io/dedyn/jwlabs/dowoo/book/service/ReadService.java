@@ -35,6 +35,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ReadService {
 
+    private static final int PASTED_CHAPTER_TITLE_MAX_LENGTH = 10;
+
     private final ChapterRepository chapterRepository;
     private final NovelRepository novelRepository;
     private final NovelPromptRepository novelPromptRepository;
@@ -136,7 +138,7 @@ public class ReadService {
         Chapter chapter = new Chapter();
         chapter.setNovel(novel);
         chapter.setSourceUrl(pseudoUrl);
-        chapter.setTitle("새 도서");
+        chapter.setTitle(derivePastedTitle(pastedText));
         chapter.setOriginalText(pastedText);
         chapter.setTranslatedText("");
         chapter.setChapterIndex(0);
@@ -156,5 +158,16 @@ public class ReadService {
             return crawled.title();
         }
         return sourceUrl;
+    }
+
+    /** 붙여넣기는 크롤링과 달리 제목을 알 수 없으니, 본문 앞부분을 잘라 챕터 제목으로 쓴다(전체 본문을 제목에 저장하지 않기 위함). */
+    private String derivePastedTitle(String pastedText) {
+        String normalized = pastedText.strip().replaceAll("\\s+", " ");
+        if (normalized.isEmpty()) {
+            return "새 도서";
+        }
+        return normalized.length() > PASTED_CHAPTER_TITLE_MAX_LENGTH
+                ? normalized.substring(0, PASTED_CHAPTER_TITLE_MAX_LENGTH) + "..."
+                : normalized;
     }
 }
