@@ -41,7 +41,7 @@ import { useHideOnScroll } from './hooks/useHideOnScroll'
 import type { ThemeSettings } from './types/settings'
 import type { Novel, NovelDetail, Chapter } from './types/novel'
 
-type TranslationError = { type: 'crawling' | 'gemini'; message: string }
+type TranslationError = { type: 'crawling' | 'gemini' | 'boundary'; message: string }
 
 // 스킴(https://)이 빠진 채로 도메인만 붙여넣는 경우(오타로 스킴을 빼먹거나, 그냥 주소만 복사한 경우)도
 // URL로 인식해서 자동으로 https://를 붙여준다 - 공백이 없고 "도메인.도메인(/경로)" 형태일 때만 해당.
@@ -272,10 +272,15 @@ function App() {
     // 우리가 마지막으로 알고 있는 챕터라도, 그 사이 원문 사이트에 새 챕터가 올라왔을 수 있다.
     // "다음 편 없음"으로 단정하기 전에 현재 챕터 주소를 가볍게 재크롤링(번역 없이 크롤링만)해서
     // nextUrl이 새로 생겼는지 한 번 더 확인한다. 실패하면 그냥 기존 "다음 편 없음" 흐름으로 넘어간다.
+    // 이렇게 얻은 targetUrl은 아직 검증되지 않은 추정값이라, 실제로 크롤링해봤을 때 실패하더라도
+    // "크롤링 오류"가 아니라 "다음 편이 없습니다"로 처리한다(원문 사이트가 아직 존재하지 않는
+    // 다음 회차 URL을 미리 채번해두는 경우가 있어 그대로 보여주면 사용자가 오류로 오해한다).
+    let isSpeculativeNext = false
     if (!targetUrl && direction === 'next') {
       try {
         const recrawled = await crawlUrl(activeChapter.sourceUrl)
         targetUrl = recrawled.nextUrl ?? null
+        isSpeculativeNext = targetUrl !== null
       } catch {
         // 재확인 실패는 무시 - 아래에서 기존과 동일하게 "다음 편이 없습니다" 처리
       }
@@ -283,7 +288,7 @@ function App() {
 
     if (!targetUrl) {
       setTranslationError({
-        type: 'crawling',
+        type: 'boundary',
         message: direction === 'prev' ? '이전 편이 없습니다.' : '다음 편이 없습니다.',
       })
       return
@@ -312,10 +317,14 @@ function App() {
       setActiveChapter(chapter)
       void handleTranslate(activeNovelDetail.id, chapter.id)
     } catch (error) {
-      setTranslationError({
-        type: 'crawling',
-        message: error instanceof Error ? error.message : String(error),
-      })
+      if (isSpeculativeNext) {
+        setTranslationError({ type: 'boundary', message: '다음 편이 없습니다.' })
+      } else {
+        setTranslationError({
+          type: 'crawling',
+          message: error instanceof Error ? error.message : String(error),
+        })
+      }
     }
   }
 
@@ -422,6 +431,7 @@ function App() {
 
       <ErrorModal
         isOpen={translationError !== null}
+        title={translationError?.type === 'boundary' ? '알림' : undefined}
         message={translationError?.message ?? ''}
         onClose={() => setTranslationError(null)}
       />

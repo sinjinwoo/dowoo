@@ -22,6 +22,8 @@
 | [16-translation-lost-on-stream-interrupt.md](16-translation-lost-on-stream-interrupt.md) | 번역 중지 후 돌아오면 진행 상황이 사라지고 재번역됨 |
 | [17-sse-close-exception-after-successful-done.md](17-sse-close-exception-after-successful-done.md) | 번역이 성공적으로 끝났는데도 네트워크 에러 모달이 뜸 |
 | [18-idle-timeout-too-short-for-long-chapters.md](18-idle-timeout-too-short-for-long-chapters.md) | 본문이 매우 길면 번역이 지연 에러(TRANSLATE_TIMEOUT)로 끊김 |
+| [19-last-chapter-shows-crawl-error.md](19-last-chapter-shows-crawl-error.md) | 마지막 화에서 "다음 편" 클릭 시 안내 대신 크롤링 오류(PARSE_FAILED)가 뜸 |
+| [20-exceptionhandler-fails-on-committed-sse-response.md](20-exceptionhandler-fails-on-committed-sse-response.md) | 번역 스트리밍 중 다음 편 이동 시 GlobalExceptionHandler에서 2차 예외 로그 |
 
 공통적으로 얻은 교훈:
 
@@ -37,3 +39,5 @@
 - **타입에 필드가 존재한다고 해서 UI가 그 필드를 실제로 쓰고 있다고 가정하지 말 것.** 스캐폴딩 단계에서 타입만 먼저 정의되고 배선은 나중으로 미뤄졌을 수 있다. (15)
 - **스트리밍 응답을 다루는 서버 코드는 정상 종료 경로뿐 아니라 클라이언트가 언제든 연결을 끊을 수 있다는 전제로 모든 종료 경로(에러/타임아웃/연결 끊김)의 부분 결과 처리를 설계할 것.** (16)
 - **try-with-resources의 암묵적 `close()`가 던지는 예외는 같은 try 블록의 `catch`에 잡힌다는 걸 기억할 것.** "이미 성공적으로 끝나고 반환하는" 경로에서 리소스 정리 실패가 성공 처리 자체를 덮어쓰지 않도록, 정상 처리와 리소스 정리의 예외 범위를 분리한다. (17)
+- **사이트 마크업 문자열은 한 글자 차이(`.htm` vs `.html`)로 완전히 다른 뜻이 될 수 있다.** 대화로 여러 번 확인하며 오락가락하느니, 정규식을 애초에 관대하게 만들어(`.html?`) 어느 쪽이든 매치하게 하는 편이 안전하다. 또한 크롤링 결과(`nextUrl` 등)는 크롤링 시점의 스냅샷이라 파서를 고쳐도 이미 저장된 데이터는 자동으로 갱신되지 않는다는 것도 기억할 것. (19)
+- **전역 예외 핸들러가 하나의 Content-Type만 가정하고 항상 같은 바디를 쓰려 하면 안 된다.** SSE 등 스트리밍 응답은 이미 다른 Content-Type으로 커밋돼 있을 수 있으므로 `HttpServletResponse.isCommitted()`로 분기해야 한다. (20)
