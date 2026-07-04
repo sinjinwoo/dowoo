@@ -1,0 +1,60 @@
+name: Build and Push Docker Images
+
+# main에 그냥 push하는 것만으로는 배포되지 않는다. v1.0.0 같은 버전 태그를 붙여서
+# push했을 때만 트리거된다:
+#   git tag v1.0.0 && git push origin v1.0.0
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch: {}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - image: sjw0066/dowoo
+            context: .
+            dockerfile: dowoo-back/Dockerfile
+          - image: sjw0066/dowoo-ai
+            context: ./dowoo-python
+            dockerfile: dowoo-python/Dockerfile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # v1.0.0 같은 버전 태그 push일 때만 그 버전 태그(v1.0.0)로도 이미지를 올린다.
+      # latest는 항상 최신 릴리스를 가리키고, workflow_dispatch로 수동 실행하면 latest만 올라간다.
+      # 문제가 생기면 .env의 DOWOO_IMAGE_TAG를 이전 버전 태그로 되돌리면 롤백된다.
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ matrix.image }}
+          tags: |
+            type=raw,value=latest
+            type=semver,pattern={{version}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
