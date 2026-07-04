@@ -43,7 +43,8 @@
 1. `dowoo-python/app/crawl/parsers/`에 사이트 전용 파서를 추가합니다 (기존 파서들, 예: `idx.py`, `mxsw.py`를 참고).
 2. `dowoo-python/app/crawl/registry.py`의 `SITE_REGISTRY`에 호스트명과 파서를 등록합니다.
 3. 대상 사이트가 Cloudflare 등으로 막혀 있다면 먼저 `curl_cffi`(`impersonate="chrome"`)로 뚫리는지 확인하세요 - 헤드리스 브라우저(Playwright)는 오히려 자동화 탐지에 걸려 막히는 경우가 있었습니다 ([`docs/troubleshooting/06-playwright-blocked-by-cloudflare.md`](docs/troubleshooting/06-playwright-blocked-by-cloudflare.md) 참고).
-4. README의 [지원 사이트](README.md#지원-사이트) 목록을 같이 업데이트해주세요.
+4. 첫 화/마지막 화 대응도 반드시 구현해야 합니다. 대상 사이트는 이전/다음 링크가 없을 때 보통 실제 회차 대신 목차 페이지나 종료 페이지 등으로 대체된 링크를 내려줍니다. 이 패턴을 정규식 등으로 감지해 `prev`/`next` 값을 `None`으로 처리하세요 (기존 파서들의 `NO_PREV_CHAPTER_RE`/`NO_NEXT_CHAPTER_RE`/`NO_CHAPTER_RE` 구현을 참고).
+5. README의 [지원 사이트](README.md#지원-사이트) 목록을 같이 업데이트해주세요.
 
 ## 🧾 트러블슈팅 문서
 
