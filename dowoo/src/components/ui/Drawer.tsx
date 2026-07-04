@@ -22,7 +22,7 @@ export default function Drawer({
   const sideClasses = side === 'right' ? 'right-0' : 'left-0'
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-50 text-gray-900 dark:text-gray-100">
       <button
         type="button"
         aria-label="닫기"
