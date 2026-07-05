@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from app.translate.gemini_client import (
     _get_status,
     _is_auth_or_quota_error,
+    _looks_untranslated,
     _split_into_chunks,
     _to_error_payload,
     resolve_system_prompt,
@@ -205,6 +206,70 @@ async def test_empty_response_without_exception_is_treated_as_retryable_failure(
         ))
 
     assert events[-1] == {"event": "done", "data": {"translatedText": "ok"}}
+
+
+# ---- 미번역(원문 그대로 베끼기) 감지 ----
+
+
+def test_looks_untranslated_true_for_chinese_passthrough():
+    # 원문 중국어를 그대로 베낀 응답 - 한글이 거의 없다.
+    assert _looks_untranslated("这是没有被翻译的原文内容测试文本用于检测汉字比例是否过低") is True
+
+
+def test_looks_untranslated_false_for_normal_korean_translation():
+    assert _looks_untranslated("이것은 정상적으로 번역된 한국어 문장입니다 아주 자연스럽게 번역되었습니다") is False
+
+
+def test_looks_untranslated_false_when_too_short_to_judge():
+    # 판단 기준(20자) 미만이면 오탐 방지를 위해 판단을 보류(정상으로 취급)한다.
+    assert _looks_untranslated("张三") is False
+
+
+async def test_untranslated_response_falls_back_to_next_key_without_leaking_lines():
+    chinese_passthrough = "这是没有被翻译的原文内容测试文本用于检测汉字比例是否过低"
+    bad_client = _client_returning([chinese_passthrough])
+    good_client = _client_returning(["정상적으로 번역된 한국어 문장입니다 아주 자연스럽게 번역되었습니다"])
+
+    with _patch_genai_client({"bad-key": bad_client, "good-key": good_client}), \
+            patch("app.translate.gemini_client.random.randrange", return_value=0):
+        events = await _collect(translate_stream(
+            api_keys=["bad-key", "good-key"], models=["gemini-2.5-flash"], system_prompt="s",
+            translation_note="", original_text="원문", thinking_budget=None,
+        ))
+
+    line_events = [e for e in events if e["event"] == "line"]
+    assert chinese_passthrough not in [e["data"]["text"] for e in line_events]
+    assert events[-1]["event"] == "done"
+    assert "정상적으로 번역된" in events[-1]["data"]["translatedText"]
+
+
+async def test_untranslated_response_retries_same_key_before_rotating():
+    # 같은 키가 처음 두 번은 원문을 그대로 베끼다가 세 번째 시도에서 정상 번역을 내놓는
+    # 상황을 재현한다 - 키를 하나만 주고도 성공해야 하며(=같은 키로 재시도했다는 뜻),
+    # genai.Client 생성 자체는 한 번만 일어나야 한다(재시도가 새 클라이언트를 안 만듦).
+    chinese_passthrough = "这是没有被翻译的原文内容测试文本用于检测汉字比例是否过低"
+    call_count = {"n": 0}
+    client = MagicMock()
+
+    async def generate_content_stream(**kwargs):
+        call_count["n"] += 1
+        if call_count["n"] < 3:
+            return _fake_stream([chinese_passthrough])
+        return _fake_stream(["정상적으로 번역된 한국어 문장입니다 아주 자연스럽게 번역되었습니다"])
+
+    client.aio.models.generate_content_stream = generate_content_stream
+
+    with patch("app.translate.gemini_client.genai.Client", return_value=client) as client_ctor, \
+            patch("app.translate.gemini_client.random.randrange", return_value=0):
+        events = await _collect(translate_stream(
+            api_keys=["only-key"], models=["gemini-2.5-flash"], system_prompt="s",
+            translation_note="", original_text="원문", thinking_budget=None,
+        ))
+
+    assert call_count["n"] == 3
+    assert client_ctor.call_count == 1
+    assert events[-1]["event"] == "done"
+    assert "정상적으로 번역된" in events[-1]["data"]["translatedText"]
 
 
 # ---- 청크 분할 ----

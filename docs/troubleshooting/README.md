@@ -26,6 +26,10 @@
 | [20-exceptionhandler-fails-on-committed-sse-response.md](20-exceptionhandler-fails-on-committed-sse-response.md) | 번역 스트리밍 중 다음 편 이동 시 GlobalExceptionHandler에서 2차 예외 로그 |
 | [21-chunk-translation-key-rpm-concentration.md](21-chunk-translation-key-rpm-concentration.md) | 청크 번역 도입 시 청크마다 같은 키만 써서 RPM 한도에 몰릴 뻔한 설계 문제 |
 | [22-chunk-buffering-broke-realtime-streaming.md](22-chunk-buffering-broke-realtime-streaming.md) | 청크 번역 도입 후 실시간 스트리밍이 안 되고 번역이 끝나야 한 번에 보임 |
+| [23-gemini-flash-lite-untranslated-passthrough.md](23-gemini-flash-lite-untranslated-passthrough.md) | gemini-3.1-flash-lite가 번역 대신 원문(중국어)을 그대로 반환하는 경우가 잦음 |
+| [24-gemini-3-flash-404-use-preview-id.md](24-gemini-3-flash-404-use-preview-id.md) | "Gemini 3 Flash" 선택/자동 폴백 시 404 에러 |
+| [25-viewer-custom-font-not-loading.md](25-viewer-custom-font-not-loading.md) | 뷰어 커스텀 폰트가 실제로 적용되지 않음 (아이폰에서 특히 두드러짐) |
+| [26-stop-button-unresponsive-during-flaky-model-retries.md](26-stop-button-unresponsive-during-flaky-model-retries.md) | "정지" 버튼을 눌러도 한참 있다가 반영됨 (gemini-3.1-flash-lite에서 특히 심함) |
 
 공통적으로 얻은 교훈:
 
@@ -45,3 +49,7 @@
 - **전역 예외 핸들러가 하나의 Content-Type만 가정하고 항상 같은 바디를 쓰려 하면 안 된다.** SSE 등 스트리밍 응답은 이미 다른 Content-Type으로 커밋돼 있을 수 있으므로 `HttpServletResponse.isCommitted()`로 분기해야 한다. (20)
 - **"직전에 성공한 걸 재사용"과 "여러 리소스에 부하 분산"은 충돌할 수 있다.** 하나의 논리적 작업이 내부적으로 여러 번의 API 호출로 쪼개진다면(예: 긴 챕터를 청크로 나눠 번역), 재시도 효율만 보고 같은 자원(API 키)을 계속 재사용하면 그 자원에 부하가 몰린다. 결과 품질에 영향을 주는 축(모델)과 순수 자원 축(키)을 구분해서, 품질 축은 유지하고 자원 축만 라운드로빈으로 분산시킨다. (21)
 - **재시도/에러 격리를 위한 안전장치가 스트리밍의 실시간성 자체를 깨뜨리지 않는지 확인할 것.** "끝난 뒤 한꺼번에 검증하고 내보내기"는 안전해 보이지만, 스트리밍 아키텍처에서는 그 자체로 스트리밍을 꺼버리는 것과 같다. 리팩터링 전에 기존 기능이 암묵적으로 어떤 코드 경로에 의존하는지 목록화해두지 않으면 다른 목적으로 코드를 고치다가 조용히 회귀시키기 쉽다. (22)
+- **서드파티 SDK가 "실패해도 예외를 안 던지는" 경우는 완전히 빈 응답 말고도 다른 변종이 있을 수 있다.** 이번엔 "내용은 있지만 지침을 무시하고 원문 언어를 그대로 베낀 응답"이었다 - 응답이 왔다고 곧바로 성공으로 판단하지 말고, 기대한 형태(언어 등)인지까지 검증할 것. (23)
+- **"이름에 preview가 없으니 안전하겠지"라고 가정하지 말 것.** 모델/기능이 preview에서 stable로 전환되는 시기에는 공식 발표에서 예고한 stable 이름이 실제 API에는 아직 없을 수 있다. 404가 나면 이름을 잘못 썼는지보다 그 이름이 API에 실제로 존재하는지부터 의심한다. (24)
+- **CSS `font-family`에 이름을 지정하는 것과 그 폰트를 실제로 로드하는 것은 별개다.** 프리셋 목록에 이름만 있고 로딩 수단(`@font-face`/스타일시트)이 없으면 브라우저는 에러 없이 조용히 시스템 폰트로 폴백한다 - 대체 폰트가 확연히 다른 플랫폼(iOS)에서야 문제가 뚜렷하게 드러나므로, 여러 플랫폼에서 실제로 확인하지 않으면 놓치기 쉽다. (25)
+- **스트리밍 릴레이 서버는 클라이언트 연결 끊김을 콜백으로 등록해야만 안다.** `SseEmitter`에 `onCompletion`/`onTimeout`/`onError`를 등록하지 않으면 다음 이벤트를 보내려다 실패할 때까지 끊김을 전혀 모른다. 그리고 재시도/안전장치를 추가할 때는 그게 "상대가 얼마나 오래 침묵할 수 있는가" 같은 다른 로직의 암묵적 전제를 건드리지 않는지도 함께 확인할 것. (26)

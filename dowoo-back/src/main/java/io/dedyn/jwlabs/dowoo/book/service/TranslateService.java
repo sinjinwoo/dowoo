@@ -24,6 +24,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.BufferedReader;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.URI;
@@ -51,10 +52,13 @@ import java.util.concurrent.atomic.AtomicLong;
 public class TranslateService {
 
     // 사용자가 모델을 지정하지 않으면(설정 미지정=자동) 이 순서로 시도한다 - 무료 티어에서 안정적으로
-    // 쓸 수 있는 정식 출시(비-preview) 모델 우선. preview 모델과 유료 전용 모델(Pro 계열)은 보통
-    // 결제(billing)가 켜져 있어야 해서 자동 목록에서 제외한다.
+    // 쓸 수 있는 모델 우선. 유료 전용 모델(Pro 계열)은 자동 목록에서 제외한다.
+    // 주의: "gemini-3-flash"(비-preview, stable 이름)는 아직 API에 실제로 존재하지 않아 404가 나므로
+    // 반드시 "gemini-3-flash-preview"를 써야 한다(2026-07-05 확인). preview 모델이 무료 티어에서
+    // 결제 없이도 동작하는지는 키마다 다를 수 있는데, 여기서 실패해도 gemini_client의 빈 응답/미번역
+    // 감지 로직이 자동으로 다음 모델(gemini-2.5-flash)로 넘어가므로 자동 목록에 남겨도 안전하다.
     private static final List<String> DEFAULT_MODEL_FALLBACK =
-            List.of("gemini-3.1-flash-lite", "gemini-3-flash", "gemini-2.5-flash", "gemini-3.5-flash");
+            List.of("gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-3.5-flash");
 
     // 내부망 커넥션 연결이라 짧게 잡아도 충분하다.
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
@@ -171,7 +175,13 @@ public class TranslateService {
             relaySse(emitter, response, novelId, chapterId);
         } catch (Exception e) {
             sendError(emitter, "AI_API_UNAVAILABLE", "번역 중 오류가 발생했습니다: " + e.getMessage());
-            emitter.completeWithError(e);
+            try {
+                emitter.completeWithError(e);
+            } catch (IllegalStateException ignored) {
+                // 프론트 연결이 이미 끊겨 emitter가 onError 콜백으로 먼저 완료 처리된 경우 -
+                // 중복 완료 호출이라 무시해도 안전하다(정상 완료 후 completeWithError가 다시
+                // 불리는 문제를 막은 troubleshooting 17/20과 같은 종류의 방어).
+            }
         }
     }
 
@@ -188,13 +198,20 @@ public class TranslateService {
         // 그때까지 도착한 줄들을 그대로 저장한다 - 다음에 이 챕터로 돌아왔을 때 처음부터 다시 요청하는 대신
         // 중단된 지점까지의 번역이 그대로 보이게 하기 위함.
         List<String> translatedLines = new ArrayList<>();
+
+        // 프론트가 "정지"를 누르거나 연결이 끊기면 서블릿 컨테이너가 이 콜백들을 호출한다 - AI API
+        // 응답 스트림을 즉시 닫아서 reader.readLine()에서 블로킹 중이던 릴레이 스레드를 바로 깨운다.
+        // 이 콜백이 없으면 AI API가 다음 SSE 이벤트를 보낼 때까지(느린 모델이거나 청크 하나를
+        // 여러 번 재시도 중이면 수십 초) 연결 끊김을 전혀 눈치채지 못해 "정지"가 한참 뒤에야
+        // 반영되는 것처럼 보인다 - 특히 gemini-3.1-flash-lite처럼 미번역 재시도가 잦은 모델에서 심함.
+        emitter.onCompletion(() -> closeQuietly(response.body()));
+        emitter.onTimeout(() -> closeQuietly(response.body()));
+        emitter.onError(ex -> closeQuietly(response.body()));
+
         ScheduledFuture<?> watchdog = watchdogScheduler.scheduleWithFixedDelay(() -> {
             if (System.nanoTime() - lastActivityNanos.get() > IDLE_TIMEOUT.toNanos()) {
                 timedOut.set(true);
-                try {
-                    response.body().close();
-                } catch (IOException ignored) {
-                }
+                closeQuietly(response.body());
             }
         }, 5, 5, TimeUnit.SECONDS);
 
@@ -291,11 +308,20 @@ public class TranslateService {
         });
     }
 
+    private void closeQuietly(Closeable closeable) {
+        try {
+            closeable.close();
+        } catch (IOException ignored) {
+        }
+    }
+
     private void sendError(SseEmitter emitter, String code, String message) {
         try {
             emitter.send(SseEmitter.event().name("error").data(Map.of("code", code, "message", message),
                     MediaType.APPLICATION_JSON));
-        } catch (IOException ignored) {
+        } catch (IOException | IllegalStateException ignored) {
+            // IllegalStateException: 프론트 연결 끊김으로 emitter가 onError 콜백을 통해 이미
+            // 완료 처리된 뒤 호출된 경우 - send() 자체가 무의미하므로 조용히 무시한다.
         }
     }
 }
