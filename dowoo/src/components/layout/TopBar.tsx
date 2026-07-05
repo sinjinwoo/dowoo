@@ -56,6 +56,15 @@ export default function TopBar({
               설정
             </Button>
 
+            <a
+              href="https://github.com/sinjinwoo/dowoo"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center whitespace-nowrap rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 shadow-sm transition-all duration-150 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
+            >
+              GitHub
+            </a>
+
             <Button variant="ghost" className="px-3 py-2" onClick={onLogout}>
               로그아웃
             </Button>
@@ -124,6 +133,16 @@ export default function TopBar({
             >
               설정
             </button>
+
+            <a
+              href="https://github.com/sinjinwoo/dowoo"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setIsMenuOpen(false)}
+              className="py-1 text-sm text-gray-700 hover:text-accent dark:text-gray-200"
+            >
+              GitHub
+            </a>
 
             <button
               type="button"

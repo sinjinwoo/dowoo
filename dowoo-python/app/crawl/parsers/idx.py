@@ -59,7 +59,10 @@ def parse_idx(html: str, url: str) -> dict:
                 break
 
     paragraphs = soup.select("article section p")
-    content = "\n\n".join(p.get_text(strip=True) for p in paragraphs)
+    # 문단 <p> 내부에 실제 줄바꿈이 섞여 있으면 그 문단 하나가 여러 줄로 쪼개져 원문/번역
+    # 줄 수가 어긋난다(다른 파서들과 같은 문제) - 문단 내부 공백은 전부 스페이스로 접어
+    # "문단 하나 = 줄 하나"를 보장한다.
+    content = "\n\n".join(" ".join(p.get_text(strip=True).split()) for p in paragraphs)
 
     # 정상 회차에서는 <a class="chapter-pre/chapter-next" href="...">가, 첫/마지막 장에서는 클릭 불가능한
     # <div class="read-pre/read-next" data-url="...">로 대체된다 - 두 형태 모두 시도해서 값을 얻는다.
