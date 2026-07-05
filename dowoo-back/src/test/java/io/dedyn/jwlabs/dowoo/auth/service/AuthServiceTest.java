@@ -5,16 +5,22 @@ import io.dedyn.jwlabs.dowoo.auth.dto.SignupRequest;
 import io.dedyn.jwlabs.dowoo.auth.entity.User;
 import io.dedyn.jwlabs.dowoo.auth.repository.UserRepository;
 import io.dedyn.jwlabs.dowoo.auth.security.JwtTokenProvider;
+import io.dedyn.jwlabs.dowoo.auth.security.UserPrincipal;
 import io.dedyn.jwlabs.dowoo.common.exception.ApiException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.OffsetDateTime;
-import java.util.Optional;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -35,12 +41,14 @@ class AuthServiceTest {
     private JwtTokenProvider jwtTokenProvider;
     @Mock
     private RefreshTokenService refreshTokenService;
+    @Mock
+    private AuthenticationManager authenticationManager;
 
     private AuthService authService;
 
     @BeforeEach
     void setUp() {
-        authService = new AuthService(userRepository, passwordEncoder, jwtTokenProvider, refreshTokenService);
+        authService = new AuthService(userRepository, passwordEncoder, jwtTokenProvider, refreshTokenService, authenticationManager);
     }
 
     @Test
@@ -85,7 +93,7 @@ class AuthServiceTest {
     @Test
     void login_usernameNotFound_throwsInvalidCredentials() {
         LoginRequest request = new LoginRequest("ghost", "password1");
-        when(userRepository.findByUsername("ghost")).thenReturn(Optional.empty());
+        when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("bad credentials"));
 
         ApiException ex = assertThrows(ApiException.class, () -> authService.login(request));
 
@@ -94,10 +102,8 @@ class AuthServiceTest {
 
     @Test
     void login_wrongPassword_throwsInvalidCredentials() {
-        User user = existingUser();
         LoginRequest request = new LoginRequest("hero123", "wrong-password");
-        when(userRepository.findByUsername("hero123")).thenReturn(Optional.of(user));
-        when(passwordEncoder.matches("wrong-password", user.getPasswordHash())).thenReturn(false);
+        when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("bad credentials"));
 
         ApiException ex = assertThrows(ApiException.class, () -> authService.login(request));
 
@@ -106,10 +112,8 @@ class AuthServiceTest {
 
     @Test
     void login_withdrawnUser_throwsInvalidCredentials() {
-        User user = existingUser();
-        user.setWithdrawnAt(OffsetDateTime.now());
         LoginRequest request = new LoginRequest("hero123", "password1");
-        when(userRepository.findByUsername("hero123")).thenReturn(Optional.of(user));
+        when(authenticationManager.authenticate(any())).thenThrow(new DisabledException("disabled"));
 
         ApiException ex = assertThrows(ApiException.class, () -> authService.login(request));
 
@@ -120,8 +124,9 @@ class AuthServiceTest {
     void login_success_returnsTokens() {
         User user = existingUser();
         LoginRequest request = new LoginRequest("hero123", "password1");
-        when(userRepository.findByUsername("hero123")).thenReturn(Optional.of(user));
-        when(passwordEncoder.matches("password1", user.getPasswordHash())).thenReturn(true);
+        Authentication successfulAuthentication = UsernamePasswordAuthenticationToken.authenticated(
+                new UserPrincipal(user), null, List.of());
+        when(authenticationManager.authenticate(any())).thenReturn(successfulAuthentication);
         when(jwtTokenProvider.generateAccessToken(any())).thenReturn("fake.jwt.token");
         when(jwtTokenProvider.accessTokenValiditySeconds()).thenReturn(1800L);
         when(refreshTokenService.issue(user)).thenReturn("raw-refresh-token");

@@ -10,9 +10,13 @@ import io.dedyn.jwlabs.dowoo.auth.entity.RefreshToken;
 import io.dedyn.jwlabs.dowoo.auth.entity.User;
 import io.dedyn.jwlabs.dowoo.auth.repository.UserRepository;
 import io.dedyn.jwlabs.dowoo.auth.security.JwtTokenProvider;
+import io.dedyn.jwlabs.dowoo.auth.security.UserPrincipal;
 import io.dedyn.jwlabs.dowoo.common.exception.ApiException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,6 +31,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenService refreshTokenService;
+    private final AuthenticationManager authenticationManager;
 
     @Transactional(readOnly = true)
     public UsernameAvailabilityResponse checkUsername(String username) {
@@ -53,12 +58,15 @@ public class AuthService {
 
     @Transactional
     public TokenIssueResult login(LoginRequest request) {
-        User user = userRepository.findByUsername(request.username())
-                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "아이디 또는 비밀번호가 올바르지 않습니다."));
-        if (user.getWithdrawnAt() != null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+        try {
+            var authentication = authenticationManager.authenticate(
+                    UsernamePasswordAuthenticationToken.unauthenticated(request.username(), request.password()));
+            User user = ((UserPrincipal) authentication.getPrincipal()).getUser();
+            return issueTokens(user);
+        } catch (AuthenticationException e) {
+            // 아이디 없음/비밀번호 불일치/탈퇴 계정을 구분 없이 같은 메시지로 응답한다(계정 존재 여부 노출 방지).
             throw new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "아이디 또는 비밀번호가 올바르지 않습니다.");
         }
-        return issueTokens(user);
     }
 
     @Transactional
