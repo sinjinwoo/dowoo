@@ -7,6 +7,17 @@ from google.genai import types
 
 ASCII_PRINTABLE_RE = re.compile(r"^[\x21-\x7e]+$")
 STATUS_RE = re.compile(r"\b(4\d{2}|5\d{2})\b")
+HANGUL_RE = re.compile(r"[가-힣]")
+CJK_RE = re.compile(r"[가-힣一-鿿㐀-䶿]")
+# 판단하기에 텍스트가 너무 짧으면(고유명사 한두 개 등) 오탐 위험이 커서 검사를 건너뛴다.
+UNTRANSLATED_CHECK_MIN_CHARS = 20
+# 이 비율 밑으로 한글이 나오면 "원문을 그대로 베낀" 것으로 간주한다 - 정상 번역도 한자
+# 고유명사를 섞어 쓰지만 이 정도로 한글 비율이 낮아지지는 않는다.
+UNTRANSLATED_HANGUL_RATIO = 0.3
+# 미번역(원문 그대로 베끼기) 감지 시 같은 (모델, 키) 조합으로 재시도할 최대 횟수 - 샘플링
+# 변동성 때문에 한 번 실패했다고 그 키/모델 자체가 문제인 건 아닌 경우가 많아, 바로 다음
+# 키로 넘기기 전에 몇 번 더 찔러본다. 사용자에게는 어떤 시도도 화면에 노출되지 않는다.
+UNTRANSLATED_MAX_ATTEMPTS = 3
 
 # 챕터 전체를 한 번의 요청으로 보내면 아주 긴 화에서 응답이 느려지거나(첫 줄이 나오기까지 몇 분씩
 # "생각"만 하는 구간, docs/troubleshooting/18 참고) 중간에 끊길 위험이 커진다 - 원문을 1만자
@@ -54,6 +65,16 @@ def _is_auth_or_quota_error(exc: Exception) -> bool:
     return any(keyword in message for keyword in ("api key", "permission", "quota", "rate limit"))
 
 
+def _looks_untranslated(text: str) -> bool:
+    """일부 모델(특히 flash-lite 계열)이 지침을 무시하고 원문(중국어 등)을 그대로 베껴
+    내보내는 경우가 있다 - 한글 비율이 비정상적으로 낮으면 번역 실패로 간주해 재시도한다."""
+    cjk_count = len(CJK_RE.findall(text))
+    if cjk_count < UNTRANSLATED_CHECK_MIN_CHARS:
+        return False
+    hangul_count = len(HANGUL_RE.findall(text))
+    return (hangul_count / cjk_count) < UNTRANSLATED_HANGUL_RATIO
+
+
 def _to_error_payload(exc: Exception) -> dict:
     status = _get_status(exc)
     if status == 400:
@@ -76,47 +97,98 @@ async def _try_one_key(
 ) -> AsyncIterator[dict]:
     """청크 하나를 한 (모델, 키) 조합으로 시도한다. 줄이 도착하는 대로 바로 _line을 내보내
     실시간 스트리밍을 유지한다 - 청크 전체를 모았다가 한 번에 내보내면 화면이 멈춰있다가
-    번역이 다 끝나야 한꺼번에 나타나는 것처럼 보인다."""
+    번역이 다 끝나야 한꺼번에 나타나는 것처럼 보인다.
+    다만 원문을 그대로 베끼는 응답(예: flash-lite가 지침을 무시하고 중국어 원문을 그대로
+    반환하는 경우)인지 판단할 만큼의 분량(UNTRANSLATED_CHECK_MIN_CHARS)이 모이기 전까지는
+    줄을 버퍼링했다가 판정 후 한꺼번에 내보낸다 - 체감 지연은 첫 한두 줄 정도라 실시간성은
+    거의 그대로 유지되면서도, 실패로 판정된 줄은 프론트에 노출되기 전에 걸러낼 수 있다.
+    미번역 판정은 같은 (모델, 키)로 최대 UNTRANSLATED_MAX_ATTEMPTS번까지 조용히 재시도한다 -
+    키/모델 자체보다 샘플링 변동성 때문인 경우가 많아, 바로 다음 키로 넘기기 전에 몇 번
+    더 찔러보는 편이 저렴하고 효과적이다. 이 재시도들은 사용자 화면에 전혀 노출되지 않는다."""
     client = genai.Client(api_key=api_key)
     config_kwargs: dict = {"system_instruction": resolved_prompt}
     if thinking_budget is not None:
         config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=thinking_budget)
 
-    buffer = ""
-    translated_lines: list[str] = []
+    for attempt in range(UNTRANSLATED_MAX_ATTEMPTS):
+        is_last_attempt = attempt == UNTRANSLATED_MAX_ATTEMPTS - 1
+        buffer = ""
+        translated_lines: list[str] = []
+        pending_lines: list[str] = []
+        pending_cjk_count = 0
+        passed_check = False
+        failed_untranslated = False
 
-    try:
-        stream = await client.aio.models.generate_content_stream(
-            model=model,
-            contents=chunk_text,
-            config=types.GenerateContentConfig(**config_kwargs),
-        )
-        async for chunk in stream:
-            text = chunk.text
-            if not text:
-                continue
-            buffer += text
-            while "\n" in buffer:
-                line, buffer = buffer.split("\n", 1)
-                translated_lines.append(line)
-                yield {"event": "_line", "data": line}
+        def _consume(line: str) -> bool:
+            """줄 하나를 판정 버퍼에 추가한다. False면 원문을 그대로 베낀 것으로 판단되어
+            이 시도 전체를 실패 처리해야 한다는 뜻이다."""
+            nonlocal pending_cjk_count, passed_check
+            pending_lines.append(line)
+            pending_cjk_count += len(CJK_RE.findall(line))
+            if passed_check or pending_cjk_count < UNTRANSLATED_CHECK_MIN_CHARS:
+                return True
+            return not _looks_untranslated("\n".join(pending_lines))
 
-        if buffer:
-            translated_lines.append(buffer)
-            yield {"event": "_line", "data": buffer}
+        try:
+            stream = await client.aio.models.generate_content_stream(
+                model=model,
+                contents=chunk_text,
+                config=types.GenerateContentConfig(**config_kwargs),
+            )
+            async for chunk in stream:
+                text = chunk.text
+                if not text:
+                    continue
+                buffer += text
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    if not _consume(line):
+                        failed_untranslated = True
+                        break
+                    if not passed_check and pending_cjk_count >= UNTRANSLATED_CHECK_MIN_CHARS:
+                        passed_check = True
+                    if passed_check:
+                        for pending in pending_lines:
+                            translated_lines.append(pending)
+                            yield {"event": "_line", "data": pending}
+                        pending_lines = []
+                if failed_untranslated:
+                    break
 
-        if translated_lines:
+            if not failed_untranslated and buffer:
+                if _consume(buffer):
+                    passed_check = True  # 스트림이 끝났으니 남은 버퍼는 그대로 확정한다.
+                    for pending in pending_lines:
+                        translated_lines.append(pending)
+                        yield {"event": "_line", "data": pending}
+                    pending_lines = []
+                else:
+                    failed_untranslated = True
+
+            if failed_untranslated:
+                if not is_last_attempt:
+                    continue  # 같은 (모델, 키)로 조용히 재시도 - 아직 아무 줄도 내보내지 않았다.
+                yield {
+                    "event": "_attempt_failed",
+                    "data": {"code": "UPSTREAM_ERROR", "message": "모델이 번역 대신 원문을 그대로 반환했습니다."},
+                    "retryable": True,
+                }
+                return
+
+            if translated_lines:
+                return
+
+            # 일부 SDK 오류는 예외를 던지지 않고 빈 스트림만 반환한다(예: 무효화된 키, preview 모델 결제 미설정 등).
+            yield {
+                "event": "_attempt_failed",
+                "data": {"code": "INVALID_API_KEY", "message": "API 키가 올바르지 않거나 응답이 비어 있습니다."},
+                "retryable": True,
+            }
             return
-
-        # 일부 SDK 오류는 예외를 던지지 않고 빈 스트림만 반환한다(예: 무효화된 키, preview 모델 결제 미설정 등).
-        yield {
-            "event": "_attempt_failed",
-            "data": {"code": "INVALID_API_KEY", "message": "API 키가 올바르지 않거나 응답이 비어 있습니다."},
-            "retryable": True,
-        }
-    except Exception as exc:
-        error = _to_error_payload(exc)
-        yield {"event": "_attempt_failed", "data": error, "retryable": _is_auth_or_quota_error(exc)}
+        except Exception as exc:
+            error = _to_error_payload(exc)
+            yield {"event": "_attempt_failed", "data": error, "retryable": _is_auth_or_quota_error(exc)}
+            return
 
 
 # api-spec.md §9.2 구현: dowoo/src/ai/geminiClient.ts + prompt.ts 로직 이식 + 모델 폴백 추가.
