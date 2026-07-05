@@ -31,6 +31,9 @@
 | [25-viewer-custom-font-not-loading.md](25-viewer-custom-font-not-loading.md) | 뷰어 커스텀 폰트가 실제로 적용되지 않음 (아이폰에서 특히 두드러짐) |
 | [26-stop-button-unresponsive-during-flaky-model-retries.md](26-stop-button-unresponsive-during-flaky-model-retries.md) | "정지" 버튼을 눌러도 한참 있다가 반영됨 (gemini-3.1-flash-lite에서 특히 심함) |
 | [27-crlf-breaks-original-translation-line-alignment.md](27-crlf-breaks-original-translation-line-alignment.md) | 원문 대조 뷰가 챕터 중간부터 원문/번역 문단이 서로 어긋남 |
+| [28-untranslated-retry-no-backoff-causes-quota-exceeded.md](28-untranslated-retry-no-backoff-causes-quota-exceeded.md) | 미번역 재시도가 딜레이 없이 연달아 나가서 구글 사용량 한도 초과가 자주 뜸 |
+| [29-flash-lite-deterministic-passthrough-on-chapter-opening.md](29-flash-lite-deterministic-passthrough-on-chapter-opening.md) | 특정 화만 어떤 키/모델로도 계속 미번역(원문 그대로) 판정에 걸림 |
+| [30-spring-boot-generated-password-logged.md](30-spring-boot-generated-password-logged.md) | Docker 로그에 Spring Boot가 생성한 비밀번호가 그대로 노출됨 |
 
 공통적으로 얻은 교훈:
 
@@ -55,3 +58,6 @@
 - **CSS `font-family`에 이름을 지정하는 것과 그 폰트를 실제로 로드하는 것은 별개다.** 프리셋 목록에 이름만 있고 로딩 수단(`@font-face`/스타일시트)이 없으면 브라우저는 에러 없이 조용히 시스템 폰트로 폴백한다 - 대체 폰트가 확연히 다른 플랫폼(iOS)에서야 문제가 뚜렷하게 드러나므로, 여러 플랫폼에서 실제로 확인하지 않으면 놓치기 쉽다. (25)
 - **스트리밍 릴레이 서버는 클라이언트 연결 끊김을 콜백으로 등록해야만 안다.** `SseEmitter`에 `onCompletion`/`onTimeout`/`onError`를 등록하지 않으면 다음 이벤트를 보내려다 실패할 때까지 끊김을 전혀 모른다. 그리고 재시도/안전장치를 추가할 때는 그게 "상대가 얼마나 오래 침묵할 수 있는가" 같은 다른 로직의 암묵적 전제를 건드리지 않는지도 함께 확인할 것. (26)
 - **줄 수 1:1 대응처럼 프롬프트로 통제하는 전제는, 그 전제를 만드는 입력 자체가 이미 깨져 있으면 무력해진다.** 크롤링한 텍스트에 원본 HTML의 실제 `\r\n`이 섞여 들어오면 `\r`만 남은 유령 줄이 생기고, JS `Boolean("\r")`은 `true`라 흔한 blank-line 필터(`.filter(Boolean)`)로도 안 걸러진다. 줄 경계를 다루는 텍스트는 `\n`만 가정하지 말고 `splitlines()` 등으로 `\r\n`/`\r`까지 명시적으로 정규화할 것. (27)
+- **같은 실패라도 "같은 자원으로 재시도"와 "다른 자원으로 넘어가기"는 딜레이가 필요한 이유가 다르다.** 전자는 그 자원의 순간 요청 속도(RPM)를 늦추기 위함이고, 후자는 애초에 그럴 필요가 없다. (28)
+- **결정론적으로 재현되는 실패는 재시도로 못 고친다.** 로그로 "매번 똑같이 실패하는지"부터 확인하고, 그렇다면 재시도 전략이 아니라 입력(프롬프트, 콘텐츠)을 의심할 것. 강한 프롬프트도 완전한 보증은 아니며, 특히 경량 모델은 프롬프트를 더 길고 복잡하게 만들수록 다른 부작용이 생길 수 있다. (29)
+- **"표준 방식으로 확장성 있게" 갈지 "당장 증상만 없앨지"는 트레이드오프다.** 도입 전에 그 표준 컴포넌트(UserDetailsService 등)를 실제로 쓰는 지점이 몇 곳인지부터 파악할 것 - 이미 다른 곳에 역할 기반 권한이나 프레임워크 기본 principal 타입이 퍼져 있었다면 훨씬 큰 리팩터링이 됐을 것이다. (30)

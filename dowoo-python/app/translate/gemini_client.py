@@ -1,3 +1,4 @@
+import asyncio
 import random
 import re
 from typing import AsyncIterator, Optional
@@ -18,6 +19,10 @@ UNTRANSLATED_HANGUL_RATIO = 0.3
 # 변동성 때문에 한 번 실패했다고 그 키/모델 자체가 문제인 건 아닌 경우가 많아, 바로 다음
 # 키로 넘기기 전에 몇 번 더 찔러본다. 사용자에게는 어떤 시도도 화면에 노출되지 않는다.
 UNTRANSLATED_MAX_ATTEMPTS = 3
+# 같은 (모델, 키)로 재시도할 때마다 대기하는 시간(초) - 딜레이 없이 연달아 3번 쏘면 RPM(분당
+# 요청 수) 한도에 걸릴 수 있어, 재시도 횟수가 늘수록 더 오래 쉰다. 마지막 시도 전에만 대기하면
+# 되므로 실제로는 앞의 UNTRANSLATED_MAX_ATTEMPTS - 1개만 쓰인다.
+UNTRANSLATED_RETRY_BACKOFF_SECONDS = (5, 10, 15)
 
 # 챕터 전체를 한 번의 요청으로 보내면 아주 긴 화에서 응답이 느려지거나(첫 줄이 나오기까지 몇 분씩
 # "생각"만 하는 구간, docs/troubleshooting/18 참고) 중간에 끊길 위험이 커진다 - 원문을 1만자
@@ -104,7 +109,10 @@ async def _try_one_key(
     거의 그대로 유지되면서도, 실패로 판정된 줄은 프론트에 노출되기 전에 걸러낼 수 있다.
     미번역 판정은 같은 (모델, 키)로 최대 UNTRANSLATED_MAX_ATTEMPTS번까지 조용히 재시도한다 -
     키/모델 자체보다 샘플링 변동성 때문인 경우가 많아, 바로 다음 키로 넘기기 전에 몇 번
-    더 찔러보는 편이 저렴하고 효과적이다. 이 재시도들은 사용자 화면에 전혀 노출되지 않는다."""
+    더 찔러보는 편이 저렴하고 효과적이다. 이 재시도들은 사용자 화면에 전혀 노출되지 않는다.
+    재시도 사이에는 UNTRANSLATED_RETRY_BACKOFF_SECONDS만큼 대기한다 - 같은 키로 딜레이 없이
+    연달아 요청하면 RPM 한도에 걸릴 수 있기 때문이다. 다른 키로 넘어갈 때는 별도 쿼터
+    버킷이라 보고 대기 없이 바로 요청한다."""
     client = genai.Client(api_key=api_key)
     config_kwargs: dict = {"system_instruction": resolved_prompt}
     if thinking_budget is not None:
@@ -167,7 +175,10 @@ async def _try_one_key(
 
             if failed_untranslated:
                 if not is_last_attempt:
-                    continue  # 같은 (모델, 키)로 조용히 재시도 - 아직 아무 줄도 내보내지 않았다.
+                    # 같은 (모델, 키)로 조용히 재시도 - 아직 아무 줄도 내보내지 않았다. 딜레이 없이
+                    # 바로 재요청하면 RPM 한도에 걸릴 수 있어 재시도 전에 잠시 쉰다.
+                    await asyncio.sleep(UNTRANSLATED_RETRY_BACKOFF_SECONDS[attempt])
+                    continue
                 yield {
                     "event": "_attempt_failed",
                     "data": {"code": "UPSTREAM_ERROR", "message": "모델이 번역 대신 원문을 그대로 반환했습니다."},
