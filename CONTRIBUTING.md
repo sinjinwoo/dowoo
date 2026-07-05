@@ -44,7 +44,8 @@
 2. `dowoo-python/app/crawl/registry.py`의 `SITE_REGISTRY`에 호스트명과 파서를 등록합니다.
 3. 대상 사이트가 Cloudflare 등으로 막혀 있다면 먼저 `curl_cffi`(`impersonate="chrome"`)로 뚫리는지 확인하세요 - 헤드리스 브라우저(Playwright)는 오히려 자동화 탐지에 걸려 막히는 경우가 있었습니다 ([`docs/troubleshooting/06-playwright-blocked-by-cloudflare.md`](docs/troubleshooting/06-playwright-blocked-by-cloudflare.md) 참고).
 4. 첫 화/마지막 화 대응도 반드시 구현해야 합니다. 대상 사이트는 이전/다음 링크가 없을 때 보통 실제 회차 대신 목차 페이지나 종료 페이지 등으로 대체된 링크를 내려줍니다. 이 패턴을 정규식 등으로 감지해 `prev`/`next` 값을 `None`으로 처리하세요 (기존 파서들의 `NO_PREV_CHAPTER_RE`/`NO_NEXT_CHAPTER_RE`/`NO_CHAPTER_RE` 구현을 참고).
-5. README의 [지원 사이트](README.md#지원-사이트) 목록을 같이 업데이트해주세요.
+5. **본문 텍스트의 줄 경계를 반드시 정규화하세요.** 원본 HTML에는 `\r\n` 같은 실제 개행이나 들여쓰기 공백이 섞여 있는 경우가 많은데, 이걸 그대로 두고 페이지 전체를 한 번에 `get_text()`로 뽑으면 `\r`만 남은 "유령 줄"이 생길 수 있습니다. 뷰어는 원문/번역문을 줄 단위(`\n` 기준) 인덱스로 대조하는데, JS의 `Boolean("\r")`은 `true`라 일반적인 blank-line 필터로도 안 걸러져서 원문/번역 문단이 챕터 중간부터 어긋나게 됩니다 ([`docs/troubleshooting/27-crlf-breaks-original-translation-line-alignment.md`](docs/troubleshooting/27-crlf-breaks-original-translation-line-alignment.md) 참고). `get_text()` 직후 `text.splitlines()`로 줄 경계를 통일하고 각 줄을 `strip()`한 뒤 다시 `\n`으로 join하세요(`shuba69.py`/`twkan.py`/`mxsw.py` 참고). `<p>` 요소별로 텍스트를 뽑는 방식(`idx.py` 참고)이라도 요소 내부에 개행이 섞일 수 있으니 `" ".join(text.split())`로 문단 내부 공백을 접어 "문단 하나 = 줄 하나"를 보장하세요.
+6. README의 [지원 사이트](README.md#지원-사이트) 목록을 같이 업데이트해주세요.
 
 ## 🧾 트러블슈팅 문서
 

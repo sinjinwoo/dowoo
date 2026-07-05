@@ -33,6 +33,9 @@ def parse_twkan(html: str, url: str) -> dict:
 
     content_html = BR_RE.sub("\n", content_html).replace("&nbsp;", " ")
     text = BeautifulSoup(content_html, "html.parser").get_text()
+    # 원본 HTML에 섞인 \r\n/\r 및 들여쓰기 공백이 그대로 남으면 "\r"만 있는 유령 줄이 생겨
+    # 프론트의 원문/번역 줄 단위 매칭이 밀린다 - 줄 경계를 통일하고 줄마다 공백을 제거한다.
+    text = "\n".join(line.strip() for line in text.splitlines())
     text = MULTI_NEWLINE_RE.sub("\n\n", text).strip()
 
     prev_url = bookinfo["previewPage"]
