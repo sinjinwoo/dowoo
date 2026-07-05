@@ -30,6 +30,7 @@
 | [24-gemini-3-flash-404-use-preview-id.md](24-gemini-3-flash-404-use-preview-id.md) | "Gemini 3 Flash" 선택/자동 폴백 시 404 에러 |
 | [25-viewer-custom-font-not-loading.md](25-viewer-custom-font-not-loading.md) | 뷰어 커스텀 폰트가 실제로 적용되지 않음 (아이폰에서 특히 두드러짐) |
 | [26-stop-button-unresponsive-during-flaky-model-retries.md](26-stop-button-unresponsive-during-flaky-model-retries.md) | "정지" 버튼을 눌러도 한참 있다가 반영됨 (gemini-3.1-flash-lite에서 특히 심함) |
+| [27-crlf-breaks-original-translation-line-alignment.md](27-crlf-breaks-original-translation-line-alignment.md) | 원문 대조 뷰가 챕터 중간부터 원문/번역 문단이 서로 어긋남 |
 
 공통적으로 얻은 교훈:
 
@@ -53,3 +54,4 @@
 - **"이름에 preview가 없으니 안전하겠지"라고 가정하지 말 것.** 모델/기능이 preview에서 stable로 전환되는 시기에는 공식 발표에서 예고한 stable 이름이 실제 API에는 아직 없을 수 있다. 404가 나면 이름을 잘못 썼는지보다 그 이름이 API에 실제로 존재하는지부터 의심한다. (24)
 - **CSS `font-family`에 이름을 지정하는 것과 그 폰트를 실제로 로드하는 것은 별개다.** 프리셋 목록에 이름만 있고 로딩 수단(`@font-face`/스타일시트)이 없으면 브라우저는 에러 없이 조용히 시스템 폰트로 폴백한다 - 대체 폰트가 확연히 다른 플랫폼(iOS)에서야 문제가 뚜렷하게 드러나므로, 여러 플랫폼에서 실제로 확인하지 않으면 놓치기 쉽다. (25)
 - **스트리밍 릴레이 서버는 클라이언트 연결 끊김을 콜백으로 등록해야만 안다.** `SseEmitter`에 `onCompletion`/`onTimeout`/`onError`를 등록하지 않으면 다음 이벤트를 보내려다 실패할 때까지 끊김을 전혀 모른다. 그리고 재시도/안전장치를 추가할 때는 그게 "상대가 얼마나 오래 침묵할 수 있는가" 같은 다른 로직의 암묵적 전제를 건드리지 않는지도 함께 확인할 것. (26)
+- **줄 수 1:1 대응처럼 프롬프트로 통제하는 전제는, 그 전제를 만드는 입력 자체가 이미 깨져 있으면 무력해진다.** 크롤링한 텍스트에 원본 HTML의 실제 `\r\n`이 섞여 들어오면 `\r`만 남은 유령 줄이 생기고, JS `Boolean("\r")`은 `true`라 흔한 blank-line 필터(`.filter(Boolean)`)로도 안 걸러진다. 줄 경계를 다루는 텍스트는 `\n`만 가정하지 말고 `splitlines()` 등으로 `\r\n`/`\r`까지 명시적으로 정규화할 것. (27)
