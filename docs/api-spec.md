@@ -63,8 +63,8 @@
 | --- | --- | --- |
 | `users` | id(uuid, PK), username, password_hash, created_at, withdrawn_at | `username` 유니크. 커뮤니티 기능이 없어 닉네임/프로필 이미지 등 표시용 필드는 두지 않는다 — 계정은 API 키·서재를 묶는 식별자 역할만 한다 |
 | `refresh_tokens` | id, user_id(FK), token_hash, expires_at, created_at | 로그아웃/재발급 시 갱신 |
-| `novels` | id(uuid, PK), user_id(FK), title, original_title, cover_url, source_url, site_name, last_read_chapter_index, last_read_scroll_pos, order_index, created_at, updated_at | 사용자별 서재 |
-| `novel_prompts` | id(uuid, PK), novel_id(FK, **유니크**), system_prompt, translation_note, updated_at | `novels`와 1:1. 소설마다 바뀌는 프롬프트/용어집만 따로 분리해 히스토리 관리·캐싱을 novels 본문과 독립적으로 할 수 있게 함 |
+| `novels` | id(uuid, PK), user_id(FK), title, original_title, cover_url, source_url, site_name, prompt_id(FK, nullable), last_read_chapter_index, last_read_scroll_pos, order_index, created_at, updated_at | 사용자별 서재. `prompt_id`가 NULL이면 "사용자의 기본 프롬프트를 쓴다"는 뜻 |
+| `prompts` | id(uuid, PK), user_id(FK), title, system_prompt, translation_note, is_default, created_at, updated_at | `novels`와 분리된 독립 리소스 — 소설과 무관하게 여러 개 만들어 재사용/전환 가능. 사용자당 `is_default=true` 행이 정확히 하나(부분 유니크 인덱스), 제목 고정·내용만 수정 가능. 회원가입 시 자동 시드 |
 | `chapters` | id(uuid, PK), novel_id(FK), source_url, title, original_text, translated_text, prev_url, next_url, chapter_index, created_at, updated_at | `(novel_id, source_url)` 유니크 |
 | `api_key_settings` | id, user_id(FK, 유니크), model, thinking_budget, updated_at | |
 | `api_keys` | id, user_id(FK), encrypted_key, key_order, created_at | 로테이션 순서 = `key_order` |
@@ -242,7 +242,7 @@
 
 프론트엔드 `Novel` 타입과 1:1로 매핑된다. 모든 엔드포인트는 인증 필요하며, 본인 소유 소설만 조회/수정 가능(`FORBIDDEN`).
 
-`systemPrompt`/`translationNote`는 API 요청·응답 상에서는 지금까지처럼 `Novel` 객체의 필드로 그대로 노출되지만, 서버 내부적으로는 `novels`와 1:1인 `novel_prompts` 테이블에 별도 저장된다(0.6 참고). Core API가 조회 시 두 테이블을 조인해 하나의 객체로 합쳐서 내려준다.
+시스템 프롬프트/번역 노트(용어집)는 더 이상 `Novel`이 직접 들고 있지 않다 - 소설과 분리된 독립 리소스인 `prompts`(2.9~2.12 참고)를 `promptId`로 참조만 한다. `promptId`가 `null`이면 사용자의 기본 프롬프트(`prompts.is_default=true`)를 쓴다는 뜻이다. `Novel` 응답에는 참조용으로 `promptId`/`promptTitle`(해석된 제목, `null`이면 "기본 프롬프트")만 담긴다.
 
 ### 2.1 `GET /api/v1/novels`
 
@@ -292,8 +292,7 @@
 | title | String | 미입력 시 원문 제목 자동 감지 | ❌ |
 | originalTitle | String | | ❌ |
 | coverUrl | String | | ❌ |
-| systemPrompt | String | 미입력 시 기본 시스템 프롬프트 사용 | ❌ |
-| translationNote | String | 등장인물/고유명사 번역 노트 | ❌ |
+| promptId | UUID | 미입력 시 사용자의 기본 프롬프트 사용 | ❌ |
 
 **📥 Response**: `201 Created`, `data`는 생성된 `Novel` 객체 (2.1과 동일 형태 + `chapters: []`).
 
@@ -303,6 +302,7 @@
 | --- | --- | --- |
 | `DUPLICATE_NOVEL` | 409 | 동일 `sourceUrl`의 소설이 이미 서재에 존재 |
 | `VALIDATION_ERROR` | 400 | `sourceUrl`이 URL 형식이 아님 |
+| `RESOURCE_NOT_FOUND` | 404 | `promptId`가 본인 소유 프롬프트가 아님 |
 
 ### 2.3 `GET /api/v1/novels/{novelId}`
 
@@ -310,9 +310,9 @@
 
 ### 2.4 `PATCH /api/v1/novels/{novelId}`
 
-**설명**: 제목/표지/시스템 프롬프트/번역 노트 등 메타데이터 수정. (`NovelMetaEditModal`에 대응)
+**설명**: 제목/원제목/표지 등 메타데이터 수정. 프롬프트 변경은 2.9 참고(부분 수정과 성격이 달라 별도 엔드포인트로 분리). (`NovelMetaEditModal`에 대응)
 
-**Request Body**: 2.2의 필드 중 변경할 값만 포함 (부분 수정).
+**Request Body**: `title`/`originalTitle`/`coverUrl` 중 변경할 값만 포함 (부분 수정, `null`/미포함은 미변경).
 
 ### 2.5 `DELETE /api/v1/novels/{novelId}`
 
@@ -366,6 +366,85 @@
 | 에러 코드 | HTTP 상태 | 발생 조건 |
 | --- | --- | --- |
 | `NO_TRANSLATED_CHAPTERS` | 400 | 번역된 챕터가 하나도 없음 |
+
+### 2.9 `PATCH /api/v1/novels/{novelId}/prompt`
+
+**설명**: 이 소설에 연결할 프롬프트를 선택/해제한다. 2.4의 일반 메타데이터 수정과 분리한 이유: `promptId: null`이 "기본 프롬프트로 되돌린다"는 유효한 값이라 부분 수정(필드 미포함=미변경) 방식과 의미가 충돌하기 때문 - 이 엔드포인트는 항상 `promptId`를 그대로 반영한다.
+
+**Request Body**
+
+| 필드명 | 타입 | 설명 | 필수 |
+| --- | --- | --- | --- |
+| promptId | UUID \| null | `null`이면 기본 프롬프트 사용으로 되돌림 | ✅ |
+
+**📥 Response**: `200 OK`, `data`는 갱신된 `Novel` 상세 객체(2.3과 동일 형태).
+
+**🔥 ERROR**
+
+| 에러 코드 | HTTP 상태 | 발생 조건 |
+| --- | --- | --- |
+| `RESOURCE_NOT_FOUND` | 404 | 소설 또는 `promptId`가 본인 소유가 아님 |
+
+### 2.10 `GET /api/v1/prompts`
+
+**설명**: 내 프롬프트 목록 조회(생성일 오름차순, 기본 프롬프트 포함).
+
+**📥 Response**
+
+```json
+{
+  "status": 200,
+  "data": [
+    {
+      "id": "p_00",
+      "title": "기본 프롬프트",
+      "systemPrompt": "...",
+      "translationNote": null,
+      "isDefault": true,
+      "createdAt": "2026-01-01T00:00:00Z",
+      "updatedAt": "2026-07-01T10:00:00Z"
+    }
+  ],
+  "message": "조회 성공",
+  "error": null
+}
+```
+
+### 2.11 `POST /api/v1/prompts`
+
+**설명**: 새 프롬프트를 만든다(`isDefault`는 항상 `false`로 생성됨 - 기본 프롬프트는 회원가입 시 자동 생성되는 한 개뿐).
+
+**Request Body**
+
+| 필드명 | 타입 | 설명 | 필수 |
+| --- | --- | --- | --- |
+| title | String | 같은 사용자 내에서 유일해야 함 | ✅ |
+| systemPrompt | String | | ❌ |
+| translationNote | String | | ❌ |
+
+**📥 Response**: `201 Created`, `data`는 생성된 프롬프트 객체(2.10과 동일 형태).
+
+**🔥 ERROR**
+
+| 에러 코드 | HTTP 상태 | 발생 조건 |
+| --- | --- | --- |
+| `DUPLICATE_PROMPT_TITLE` | 409 | 같은 사용자 내에 동일 제목의 프롬프트가 이미 존재 |
+
+### 2.12 `PATCH /api/v1/prompts/{promptId}` / `DELETE /api/v1/prompts/{promptId}`
+
+**설명**: 프롬프트 내용 수정/삭제. **기본 프롬프트(`isDefault=true`)는 `title` 변경 요청이 와도 조용히 무시되고(내용은 수정 가능), 삭제는 거부된다.** 삭제된 프롬프트를 참조하던 소설은 `prompt_id`가 자동으로 `NULL`(기본 프롬프트 사용)로 복귀한다(`ON DELETE SET NULL`).
+
+**Request Body (PATCH)**: `title`/`systemPrompt`/`translationNote` 중 변경할 값만 포함.
+
+**📥 Response**: PATCH는 `200 OK` + 갱신된 프롬프트 객체, DELETE는 `200 OK` + `data: null`.
+
+**🔥 ERROR**
+
+| 에러 코드 | HTTP 상태 | 발생 조건 |
+| --- | --- | --- |
+| `RESOURCE_NOT_FOUND` | 404 | 본인 소유 프롬프트가 아님 |
+| `DUPLICATE_PROMPT_TITLE` | 409 | (PATCH) 변경하려는 제목이 이미 다른 프롬프트에 사용 중 |
+| `CANNOT_DELETE_DEFAULT_PROMPT` | 400 | (DELETE) 대상이 기본 프롬프트임 |
 
 ---
 
@@ -647,7 +726,7 @@
 **설명**: 이미 저장된 챕터의 원문(`chapters.original_text`)을 번역한다. Body 없이 path의 `novelId`/`chapterId`만으로 동작한다.
 
 동작 순서:
-1. Core API가 자기 DB에서 해당 챕터의 `original_text`, 소설의 `novel_prompts`(시스템 프롬프트/번역 노트), 로그인 사용자의 `api_keys`(복호화)·`model`·`thinking_budget`을 모두 조회한다.
+1. Core API가 자기 DB에서 해당 챕터의 `original_text`, 소설이 참조하는 `prompts` 행(없으면 사용자의 기본 프롬프트, 시스템 프롬프트/번역 노트), 로그인 사용자의 `api_keys`(복호화)·`model`·`thinking_budget`을 모두 조회한다.
 2. 조회한 값을 그대로 body에 담아 AI API의 `POST /internal/translate/stream`(9.2)을 호출한다.
 3. AI API가 돌려주는 SSE 이벤트(`start`/`line`/`progress`/`done`/`error`)를 프론트에 그대로 릴레이(relay)한다.
 4. `done` 이벤트를 받으면 Core API가 즉시 `chapters.translated_text`를 갱신해 저장한다 (프론트가 3.3을 별도로 호출할 필요 없음).

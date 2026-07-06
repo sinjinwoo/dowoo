@@ -11,7 +11,6 @@ import io.dedyn.jwlabs.dowoo.book.entity.Chapter;
 import io.dedyn.jwlabs.dowoo.book.repository.ChapterRepository;
 import io.dedyn.jwlabs.dowoo.common.exception.ApiException;
 import io.dedyn.jwlabs.dowoo.library.entity.Novel;
-import io.dedyn.jwlabs.dowoo.library.repository.NovelPromptRepository;
 import io.dedyn.jwlabs.dowoo.library.repository.NovelRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,8 +40,6 @@ class ReadServiceTest {
     @Mock
     private NovelRepository novelRepository;
     @Mock
-    private NovelPromptRepository novelPromptRepository;
-    @Mock
     private CurrentUserProvider currentUserProvider;
     @Mock
     private UserRepository userRepository;
@@ -54,7 +51,7 @@ class ReadServiceTest {
     @BeforeEach
     void setUp() {
         readService = new ReadService(
-                chapterRepository, novelRepository, novelPromptRepository, currentUserProvider, userRepository, crawlClient);
+                chapterRepository, novelRepository, currentUserProvider, userRepository, crawlClient);
     }
 
     @Test

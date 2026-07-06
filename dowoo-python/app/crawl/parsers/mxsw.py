@@ -3,6 +3,8 @@ from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
+from app.crawl.parsers.sanitize import strip_ad_lines
+
 SOURCE_SITE = "m.xsw.tw"
 
 BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
@@ -34,6 +36,7 @@ def parse_mxsw(html: str, url: str) -> dict:
     # 원본 HTML에 섞인 \r\n/\r 및 들여쓰기 공백이 그대로 남으면 "\r"만 있는 유령 줄이 생겨
     # 프론트의 원문/번역 줄 단위 매칭이 밀린다 - 줄 경계를 통일하고 줄마다 공백을 제거한다.
     text = "\n".join(line.strip() for line in text.splitlines())
+    text = strip_ad_lines(text)
     text = MULTI_NEWLINE_RE.sub("\n\n", text).strip()
 
     prev_el = soup.select_one("#pb_prev") or soup.select_one("#pb_prev1")

@@ -3,6 +3,8 @@ from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
+from app.crawl.parsers.sanitize import strip_ad_lines
+
 SOURCE_SITE = "ixdzs8.com"
 
 # 책 소개 페이지로 돌아가는 링크(/read/{bookId}/, 회차 파일명 없음)의 텍스트가 곧 책 제목이다.
@@ -63,6 +65,7 @@ def parse_idx(html: str, url: str) -> dict:
     # 줄 수가 어긋난다(다른 파서들과 같은 문제) - 문단 내부 공백은 전부 스페이스로 접어
     # "문단 하나 = 줄 하나"를 보장한다.
     content = "\n\n".join(" ".join(p.get_text(strip=True).split()) for p in paragraphs)
+    content = strip_ad_lines(content)
 
     # 정상 회차에서는 <a class="chapter-pre/chapter-next" href="...">가, 첫/마지막 장에서는 클릭 불가능한
     # <div class="read-pre/read-next" data-url="...">로 대체된다 - 두 형태 모두 시도해서 값을 얻는다.

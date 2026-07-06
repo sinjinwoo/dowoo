@@ -23,6 +23,10 @@ UNTRANSLATED_MAX_ATTEMPTS = 3
 # 요청 수) 한도에 걸릴 수 있어, 재시도 횟수가 늘수록 더 오래 쉰다. 마지막 시도 전에만 대기하면
 # 되므로 실제로는 앞의 UNTRANSLATED_MAX_ATTEMPTS - 1개만 쓰인다.
 UNTRANSLATED_RETRY_BACKOFF_SECONDS = (5, 10, 15)
+# 서로 다른 키 2개가 같은 모델에서 똑같이 "미번역" 판정을 받으면 키 문제가 아니라 그
+# 모델이 이 콘텐츠를 결정론적으로 못 다루는 것으로 본다(docs/troubleshooting/29 참고) -
+# 이 경우 남은 키를 마저 태우지 않고 바로 다음 모델로 넘어가 낭비 시간을 줄인다.
+UNTRANSLATED_MODEL_ESCALATE_AFTER_KEYS = 2
 
 # 챕터 전체를 한 번의 요청으로 보내면 아주 긴 화에서 응답이 느려지거나(첫 줄이 나오기까지 몇 분씩
 # "생각"만 하는 구간, docs/troubleshooting/18 참고) 중간에 끊길 위험이 커진다 - 원문을 1만자
@@ -183,6 +187,7 @@ async def _try_one_key(
                     "event": "_attempt_failed",
                     "data": {"code": "UPSTREAM_ERROR", "message": "모델이 번역 대신 원문을 그대로 반환했습니다."},
                     "retryable": True,
+                    "reason": "untranslated",
                 }
                 return
 
@@ -245,6 +250,7 @@ async def translate_stream(
             model = models[model_index]
 
             retryable = True
+            untranslated_failure_count = 0
             for key_offset in range(len(keys)):
                 key_index = (key_start_index + key_offset) % len(keys)
 
@@ -269,6 +275,10 @@ async def translate_stream(
                     retryable = attempt_failed["retryable"]
                     if not retryable:
                         break
+                    if attempt_failed.get("reason") == "untranslated":
+                        untranslated_failure_count += 1
+                        if untranslated_failure_count >= UNTRANSLATED_MODEL_ESCALATE_AFTER_KEYS:
+                            break
                     continue
 
                 model_start_index = model_index

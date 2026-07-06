@@ -5,9 +5,9 @@ import io.dedyn.jwlabs.dowoo.book.entity.Chapter;
 import io.dedyn.jwlabs.dowoo.book.repository.ChapterRepository;
 import io.dedyn.jwlabs.dowoo.common.exception.ApiException;
 import io.dedyn.jwlabs.dowoo.library.entity.Novel;
-import io.dedyn.jwlabs.dowoo.library.entity.NovelPrompt;
-import io.dedyn.jwlabs.dowoo.library.repository.NovelPromptRepository;
+import io.dedyn.jwlabs.dowoo.library.entity.Prompt;
 import io.dedyn.jwlabs.dowoo.library.repository.NovelRepository;
+import io.dedyn.jwlabs.dowoo.library.repository.PromptRepository;
 import io.dedyn.jwlabs.dowoo.library.support.DefaultPrompts;
 import io.dedyn.jwlabs.dowoo.settings.crypto.ApiKeyCipher;
 import io.dedyn.jwlabs.dowoo.settings.entity.ApiKey;
@@ -70,7 +70,7 @@ public class TranslateService {
 
     private final ChapterRepository chapterRepository;
     private final NovelRepository novelRepository;
-    private final NovelPromptRepository novelPromptRepository;
+    private final PromptRepository promptRepository;
     private final ApiKeySettingRepository apiKeySettingRepository;
     private final ApiKeyRepository apiKeyRepository;
     private final ApiKeyCipher apiKeyCipher;
@@ -93,7 +93,7 @@ public class TranslateService {
     public TranslateService(
             ChapterRepository chapterRepository,
             NovelRepository novelRepository,
-            NovelPromptRepository novelPromptRepository,
+            PromptRepository promptRepository,
             ApiKeySettingRepository apiKeySettingRepository,
             ApiKeyRepository apiKeyRepository,
             ApiKeyCipher apiKeyCipher,
@@ -103,7 +103,7 @@ public class TranslateService {
             @Value("${app.internal-token}") String internalToken) {
         this.chapterRepository = chapterRepository;
         this.novelRepository = novelRepository;
-        this.novelPromptRepository = novelPromptRepository;
+        this.promptRepository = promptRepository;
         this.apiKeySettingRepository = apiKeySettingRepository;
         this.apiKeyRepository = apiKeyRepository;
         this.apiKeyCipher = apiKeyCipher;
@@ -116,7 +116,7 @@ public class TranslateService {
     public SseEmitter translate(UUID novelId, UUID chapterId) {
         UUID userId = currentUserProvider.currentUserId();
 
-        novelRepository.findByIdAndUserId(novelId, userId)
+        Novel novel = novelRepository.findByIdAndUserId(novelId, userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "소설을 찾을 수 없습니다."));
         Chapter chapter = chapterRepository.findByIdAndNovelId(chapterId, novelId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "챕터를 찾을 수 없습니다."));
@@ -133,7 +133,7 @@ public class TranslateService {
                 : DEFAULT_MODEL_FALLBACK;
         Integer thinkingBudget = setting != null ? setting.getThinkingBudget() : null;
 
-        NovelPrompt prompt = novelPromptRepository.findByNovelId(novelId).orElse(null);
+        Prompt prompt = resolveEffectivePrompt(userId, novel.getPromptId());
         String systemPrompt = (prompt != null && StringUtils.hasText(prompt.getSystemPrompt()))
                 ? prompt.getSystemPrompt() : DefaultPrompts.SYSTEM_PROMPT;
         String translationNote = prompt != null && prompt.getTranslationNote() != null ? prompt.getTranslationNote() : "";
@@ -151,6 +151,19 @@ public class TranslateService {
         SseEmitter emitter = new SseEmitter(0L);
         executor.submit(() -> streamFromAiApi(emitter, requestBody, novelId, chapterId));
         return emitter;
+    }
+
+    /**
+     * novel.promptId가 있으면 그 프롬프트를, 없으면("기본 프롬프트 사용" 상태) 사용자의 기본
+     * 프롬프트 행을 찾는다. 기본 프롬프트 행 자체가 없는 예외적 상황(레거시 데이터 누락 등)에도
+     * 번역 자체는 막히면 안 되므로, null을 반환해 호출부가 DefaultPrompts.SYSTEM_PROMPT 상수로
+     * 최종 폴백하게 한다.
+     */
+    private Prompt resolveEffectivePrompt(UUID userId, UUID promptId) {
+        if (promptId != null) {
+            return promptRepository.findById(promptId).orElse(null);
+        }
+        return promptRepository.findByUserIdAndDefaultPromptTrue(userId).orElse(null);
     }
 
     private void streamFromAiApi(SseEmitter emitter, Map<String, Object> requestBody, UUID novelId, UUID chapterId) {

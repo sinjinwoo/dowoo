@@ -8,8 +8,13 @@ export const getNovelDetail = (novelId: string) => apiGet<NovelDetail>(`/api/v1/
 
 export const patchNovel = (
   novelId: string,
-  partial: { title?: string; originalTitle?: string; coverUrl?: string; systemPrompt?: string; translationNote?: string }
+  partial: { title?: string; originalTitle?: string; coverUrl?: string }
 ) => apiPatch<NovelDetail>(`/api/v1/novels/${novelId}`, partial)
+
+// promptId=null은 "기본 프롬프트로 되돌린다"는 유효한 값이라 patchNovel의 부분 수정과 성격이
+// 달라(생략=미변경 vs null=명시적 해제를 구분해야 함) 전용 엔드포인트로 분리했다(api-spec 2.9).
+export const selectNovelPrompt = (novelId: string, promptId: string | null) =>
+  apiPatch<NovelDetail>(`/api/v1/novels/${novelId}/prompt`, { promptId })
 
 export const deleteNovel = (novelId: string) => apiDelete(`/api/v1/novels/${novelId}`)
 
