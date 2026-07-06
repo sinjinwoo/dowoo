@@ -7,6 +7,7 @@ import io.dedyn.jwlabs.dowoo.auth.repository.UserRepository;
 import io.dedyn.jwlabs.dowoo.auth.security.JwtTokenProvider;
 import io.dedyn.jwlabs.dowoo.auth.security.UserPrincipal;
 import io.dedyn.jwlabs.dowoo.common.exception.ApiException;
+import io.dedyn.jwlabs.dowoo.library.repository.PromptRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,6 +37,8 @@ class AuthServiceTest {
     @Mock
     private UserRepository userRepository;
     @Mock
+    private PromptRepository promptRepository;
+    @Mock
     private PasswordEncoder passwordEncoder;
     @Mock
     private JwtTokenProvider jwtTokenProvider;
@@ -48,7 +51,8 @@ class AuthServiceTest {
 
     @BeforeEach
     void setUp() {
-        authService = new AuthService(userRepository, passwordEncoder, jwtTokenProvider, refreshTokenService, authenticationManager);
+        authService = new AuthService(
+                userRepository, promptRepository, passwordEncoder, jwtTokenProvider, refreshTokenService, authenticationManager);
     }
 
     @Test

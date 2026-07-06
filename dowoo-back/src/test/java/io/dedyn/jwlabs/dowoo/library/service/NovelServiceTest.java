@@ -9,9 +9,8 @@ import io.dedyn.jwlabs.dowoo.common.exception.ApiException;
 import io.dedyn.jwlabs.dowoo.library.dto.NovelCreateRequest;
 import io.dedyn.jwlabs.dowoo.library.dto.ReorderRequest;
 import io.dedyn.jwlabs.dowoo.library.entity.Novel;
-import io.dedyn.jwlabs.dowoo.library.entity.NovelPrompt;
-import io.dedyn.jwlabs.dowoo.library.repository.NovelPromptRepository;
 import io.dedyn.jwlabs.dowoo.library.repository.NovelRepository;
+import io.dedyn.jwlabs.dowoo.library.repository.PromptRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,7 +38,7 @@ class NovelServiceTest {
     @Mock
     private NovelRepository novelRepository;
     @Mock
-    private NovelPromptRepository novelPromptRepository;
+    private PromptRepository promptRepository;
     @Mock
     private ChapterRepository chapterRepository;
     @Mock
@@ -52,13 +51,13 @@ class NovelServiceTest {
     @BeforeEach
     void setUp() {
         novelService = new NovelService(
-                novelRepository, novelPromptRepository, chapterRepository, currentUserProvider, userRepository);
+                novelRepository, promptRepository, chapterRepository, currentUserProvider, userRepository);
     }
 
     @Test
     void create_duplicateSourceUrl_throwsConflict() {
         NovelCreateRequest request = new NovelCreateRequest(
-                "https://ixdzs8.com/read/1/p1.html", "ixdzs8.com", null, null, null, null, null);
+                "https://ixdzs8.com/read/1/p1.html", "ixdzs8.com", null, null, null, null);
         when(currentUserProvider.currentUserId()).thenReturn(USER_ID);
         when(novelRepository.existsByUserIdAndSourceUrl(USER_ID, request.sourceUrl())).thenReturn(true);
 
@@ -71,13 +70,12 @@ class NovelServiceTest {
     @Test
     void create_blankTitle_fallsBackToSourceUrl() {
         NovelCreateRequest request = new NovelCreateRequest(
-                "https://ixdzs8.com/read/1/p1.html", "ixdzs8.com", "  ", null, null, null, null);
+                "https://ixdzs8.com/read/1/p1.html", "ixdzs8.com", "  ", null, null, null);
         when(currentUserProvider.currentUserId()).thenReturn(USER_ID);
         when(novelRepository.existsByUserIdAndSourceUrl(USER_ID, request.sourceUrl())).thenReturn(false);
         when(userRepository.getReferenceById(USER_ID)).thenReturn(mock(User.class));
         when(novelRepository.countByUserId(USER_ID)).thenReturn(0L);
         when(novelRepository.save(any(Novel.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(novelPromptRepository.save(any(NovelPrompt.class))).thenAnswer(inv -> inv.getArgument(0));
 
         var detail = novelService.create(request);
 

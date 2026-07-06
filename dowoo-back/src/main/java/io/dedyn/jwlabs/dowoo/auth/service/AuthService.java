@@ -12,6 +12,9 @@ import io.dedyn.jwlabs.dowoo.auth.repository.UserRepository;
 import io.dedyn.jwlabs.dowoo.auth.security.JwtTokenProvider;
 import io.dedyn.jwlabs.dowoo.auth.security.UserPrincipal;
 import io.dedyn.jwlabs.dowoo.common.exception.ApiException;
+import io.dedyn.jwlabs.dowoo.library.entity.Prompt;
+import io.dedyn.jwlabs.dowoo.library.repository.PromptRepository;
+import io.dedyn.jwlabs.dowoo.library.support.DefaultPrompts;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -28,6 +31,7 @@ import java.time.OffsetDateTime;
 public class AuthService {
 
     private final UserRepository userRepository;
+    private final PromptRepository promptRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenService refreshTokenService;
@@ -47,11 +51,21 @@ public class AuthService {
             throw new ApiException(HttpStatus.CONFLICT, "DUPLICATE_USERNAME", "이미 사용 중인 아이디입니다.");
         }
 
+        OffsetDateTime now = OffsetDateTime.now();
         User user = new User();
         user.setUsername(request.username());
         user.setPasswordHash(passwordEncoder.encode(request.password()));
-        user.setCreatedAt(OffsetDateTime.now());
+        user.setCreatedAt(now);
         user = userRepository.save(user);
+
+        Prompt defaultPrompt = new Prompt();
+        defaultPrompt.setUser(user);
+        defaultPrompt.setTitle(DefaultPrompts.DEFAULT_PROMPT_TITLE);
+        defaultPrompt.setSystemPrompt(DefaultPrompts.SYSTEM_PROMPT);
+        defaultPrompt.setDefaultPrompt(true);
+        defaultPrompt.setCreatedAt(now);
+        defaultPrompt.setUpdatedAt(now);
+        promptRepository.save(defaultPrompt);
 
         return issueTokens(user);
     }

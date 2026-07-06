@@ -12,6 +12,7 @@ import {
   listNovels,
   getNovelDetail,
   patchNovel,
+  selectNovelPrompt,
   deleteNovel,
   reorderNovels,
   updateLastRead,
@@ -19,6 +20,7 @@ import {
   readSource,
   crawlUrl,
 } from './api/novels'
+import { listPrompts, createPrompt, updatePrompt, deletePrompt } from './api/prompts'
 import { getChapter, createChapter } from './api/chapters'
 import {
   getApiSettings,
@@ -39,6 +41,7 @@ import { defaultTheme } from './data/defaults'
 import { useHideOnScroll } from './hooks/useHideOnScroll'
 import type { ThemeSettings } from './types/settings'
 import type { Novel, NovelDetail, Chapter } from './types/novel'
+import type { Prompt } from './types/prompt'
 
 type TranslationError = { type: 'crawling' | 'gemini' | 'boundary'; message: string }
 
@@ -57,6 +60,7 @@ function App() {
   const { status: authStatus, logout } = useAuth()
   const [isLoading, setIsLoading] = useState(true)
   const [novels, setNovels] = useState<Novel[]>([])
+  const [prompts, setPrompts] = useState<Prompt[]>([])
   const [activeNovelDetail, setActiveNovelDetail] = useState<NovelDetail | null>(null)
   const [currentChapterIndex, setCurrentChapterIndex] = useState(0)
   const [activeChapter, setActiveChapter] = useState<Chapter | null>(null)
@@ -81,6 +85,10 @@ function App() {
     setNovels(await listNovels())
   }
 
+  const refreshPrompts = async () => {
+    setPrompts(await listPrompts())
+  }
+
   const openNovelDetail = async (novelId: string, chapterIndex: number) => {
     const detail = await getNovelDetail(novelId)
     setActiveNovelDetail(detail)
@@ -94,13 +102,15 @@ function App() {
     void (async () => {
       setIsLoading(true)
       try {
-        const [novelList, settings, themeData, presets] = await Promise.all([
+        const [novelList, promptList, settings, themeData, presets] = await Promise.all([
           listNovels(),
+          listPrompts(),
           getApiSettings(),
           getTheme(),
           listThemePresets(),
         ])
         setNovels(novelList)
+        setPrompts(promptList)
         setApiSettings(settings)
         setTheme(themeData)
         setCustomThemePresets(presets)
@@ -336,13 +346,38 @@ function App() {
     novelId: string,
     title: string,
     coverUrl: string,
-    systemPrompt: string,
-    translationNote: string
+    promptId: string | null
   ) => {
-    await patchNovel(novelId, { title, coverUrl, systemPrompt, translationNote })
+    await Promise.all([patchNovel(novelId, { title, coverUrl }), selectNovelPrompt(novelId, promptId)])
     void refreshNovels()
     if (activeNovelDetail?.id === novelId) {
       setActiveNovelDetail(await getNovelDetail(novelId))
+    }
+  }
+
+  const handleCreatePrompt = async (title: string, systemPrompt: string, translationNote: string) => {
+    await createPrompt({ title, systemPrompt, translationNote })
+    void refreshPrompts()
+  }
+
+  const handleUpdatePrompt = async (
+    promptId: string,
+    title: string,
+    systemPrompt: string,
+    translationNote: string
+  ) => {
+    await updatePrompt(promptId, { title, systemPrompt, translationNote })
+    void refreshPrompts()
+    if (activeNovelDetail?.promptId === promptId) {
+      setActiveNovelDetail(await getNovelDetail(activeNovelDetail.id))
+    }
+  }
+
+  const handleDeletePrompt = async (promptId: string) => {
+    await deletePrompt(promptId)
+    void refreshPrompts()
+    if (activeNovelDetail?.promptId === promptId) {
+      setActiveNovelDetail(await getNovelDetail(activeNovelDetail.id))
     }
   }
 
@@ -472,14 +507,22 @@ function App() {
         isOpen={isLibraryOpen}
         onClose={() => setIsLibraryOpen(false)}
         novels={novels}
+        prompts={prompts}
         onSelectChapter={(novelId, chapterIndex) => void handleSelectChapter(novelId, chapterIndex)}
         onLoadNovelDetail={getNovelDetail}
-        onUpdateNovel={(novelId, title, coverUrl, systemPrompt, translationNote) =>
-          void handleUpdateNovel(novelId, title, coverUrl, systemPrompt, translationNote)
+        onUpdateNovel={(novelId, title, coverUrl, promptId) =>
+          void handleUpdateNovel(novelId, title, coverUrl, promptId)
         }
         onDeleteNovel={(novelId) => void handleDeleteNovel(novelId)}
         onReorderNovels={(orderedIds) => void handleReorderNovels(orderedIds)}
         onDownloadNovel={handleDownloadNovel}
+        onCreatePrompt={(title, systemPrompt, translationNote) =>
+          void handleCreatePrompt(title, systemPrompt, translationNote)
+        }
+        onUpdatePrompt={(promptId, title, systemPrompt, translationNote) =>
+          void handleUpdatePrompt(promptId, title, systemPrompt, translationNote)
+        }
+        onDeletePrompt={(promptId) => void handleDeletePrompt(promptId)}
       />
     </AppShell>
   )

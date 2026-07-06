@@ -46,6 +46,12 @@ public class Novel {
     @Column(name = "source_book_id")
     private String sourceBookId;
 
+    // 이 소설에 연결된 프롬프트(시스템 프롬프트+번역 메모). NULL이면 "사용자의 기본
+    // 프롬프트를 쓴다"는 뜻으로 취급한다(TranslateService 참고) - 별도의 "기본값 사용" 플래그가
+    // 필요 없고, 선택한 프롬프트가 삭제돼도(ON DELETE SET NULL) 자동으로 기본값으로 돌아온다.
+    @Column(name = "prompt_id")
+    private UUID promptId;
+
     @Column(name = "last_read_chapter_index")
     private Integer lastReadChapterIndex;
 

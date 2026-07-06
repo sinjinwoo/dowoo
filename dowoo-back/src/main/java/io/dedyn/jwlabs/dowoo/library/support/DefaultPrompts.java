@@ -3,6 +3,9 @@ package io.dedyn.jwlabs.dowoo.library.support;
 /** 신규 소설 생성 시 기본으로 채워 넣는 시스템 프롬프트. */
 public final class DefaultPrompts {
 
+    /** 사용자당 하나씩 시드되는 기본 프롬프트(Prompt.isDefaultPrompt=true)의 고정 제목. */
+    public static final String DEFAULT_PROMPT_TITLE = "기본 프롬프트";
+
     public static final String SYSTEM_PROMPT = """
             [가장 높은 최우선 명령 (시스템 절대 규칙)]
             1. 출력의 기본 언어는 '오직 한국어'이다. 본문 전체가 중국어 문장으로 출력되거나, 번역되지 않은 중국어 단어가 단독으로 행에 남는 경우 즉시 규칙 위반으로 간주한다.
