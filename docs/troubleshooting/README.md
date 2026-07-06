@@ -34,6 +34,7 @@
 | [28-untranslated-retry-no-backoff-causes-quota-exceeded.md](28-untranslated-retry-no-backoff-causes-quota-exceeded.md) | 미번역 재시도가 딜레이 없이 연달아 나가서 구글 사용량 한도 초과가 자주 뜸 |
 | [29-flash-lite-deterministic-passthrough-on-chapter-opening.md](29-flash-lite-deterministic-passthrough-on-chapter-opening.md) | 특정 화만 어떤 키/모델로도 계속 미번역(원문 그대로) 판정에 걸림 |
 | [30-spring-boot-generated-password-logged.md](30-spring-boot-generated-password-logged.md) | Docker 로그에 Spring Boot가 생성한 비밀번호가 그대로 노출됨 |
+| [31-ad-watermark-lines-still-trigger-passthrough-after-prompt-fix.md](31-ad-watermark-lines-still-trigger-passthrough-after-prompt-fix.md) | 프롬프트 강화 후에도 광고 줄이 섞인 화에서 미번역 패스스루가 계속 재현됨 |
 
 공통적으로 얻은 교훈:
 
@@ -61,3 +62,4 @@
 - **같은 실패라도 "같은 자원으로 재시도"와 "다른 자원으로 넘어가기"는 딜레이가 필요한 이유가 다르다.** 전자는 그 자원의 순간 요청 속도(RPM)를 늦추기 위함이고, 후자는 애초에 그럴 필요가 없다. (28)
 - **결정론적으로 재현되는 실패는 재시도로 못 고친다.** 로그로 "매번 똑같이 실패하는지"부터 확인하고, 그렇다면 재시도 전략이 아니라 입력(프롬프트, 콘텐츠)을 의심할 것. 강한 프롬프트도 완전한 보증은 아니며, 특히 경량 모델은 프롬프트를 더 길고 복잡하게 만들수록 다른 부작용이 생길 수 있다. (29)
 - **"표준 방식으로 확장성 있게" 갈지 "당장 증상만 없앨지"는 트레이드오프다.** 도입 전에 그 표준 컴포넌트(UserDetailsService 등)를 실제로 쓰는 지점이 몇 곳인지부터 파악할 것 - 이미 다른 곳에 역할 기반 권한이나 프레임워크 기본 principal 타입이 퍼져 있었다면 훨씬 큰 리팩터링이 됐을 것이다. (30)
+- **프롬프트로 완화한 결정론적 실패는 근본 원인이 아니다.** 확률을 낮추는 것과 원인이 된 입력을 없애는 것은 다르다 - 재현이 계속되면 프롬프트를 더 손보기 전에 "이 입력을 애초에 모델에 안 보여줄 수 있는가"부터 확인할 것. 필터를 추가할 때는 대상 신호를 최대한 좁고 구체적으로 잡아 정상 콘텐츠를 오탐하지 않도록 하고, 재시도 인프라에는 "몇 번 실패하면 같은 자원 재시도를 포기하고 다른 자원으로 넘어갈지"를 명시적으로 정해 둘 것. (31)
