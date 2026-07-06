@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.translate.gemini_client import (
+    UNTRANSLATED_MAX_ATTEMPTS,
     _get_status,
     _is_auth_or_quota_error,
     _looks_untranslated,
@@ -357,6 +358,40 @@ async def test_multi_chunk_translation_calls_gemini_once_per_chunk_and_concatena
     assert [e["data"]["index"] for e in line_events] == [0, 1]
     assert [e["data"]["text"] for e in line_events] == ["translated-chunk-1", "translated-chunk-2"]
     assert events[-1] == {"event": "done", "data": {"translatedText": "translated-chunk-1\ntranslated-chunk-2"}}
+
+
+async def test_untranslated_failure_on_two_keys_escalates_to_next_model_without_trying_remaining_keys():
+    # model-a는 (가정상) 이 청크를 결정론적으로 원문 그대로 베끼는 가벼운 모델이라고 하자 -
+    # 어떤 키로 시도해도 항상 실패한다. 서로 다른 키 2개가 똑같이 실패하면 키 문제가
+    # 아니라 모델/콘텐츠 문제로 보고, 3번째 키는 아예 시도하지 않고 바로 model-b로
+    # 넘어가야 한다(안 그러면 결정론적 실패인데도 남은 키를 전부 태우며 시간을 낭비함).
+    chinese_passthrough = "这是没有被翻译的原文内容测试文本用于检测汉字比例是否过低"
+    call_log: list[tuple[str, str]] = []
+
+    def make_client(api_key):
+        client = MagicMock()
+
+        async def generate_content_stream(model, **kwargs):
+            call_log.append((api_key, model))
+            if model == "model-a":
+                return _fake_stream([chinese_passthrough])
+            return _fake_stream(["정상적으로 번역된 한국어 문장입니다 아주 자연스럽게 번역되었습니다"])
+
+        client.aio.models.generate_content_stream = generate_content_stream
+        return client
+
+    with patch("app.translate.gemini_client.genai.Client", side_effect=make_client), \
+            patch("app.translate.gemini_client.random.randrange", return_value=0):
+        events = await _collect(translate_stream(
+            api_keys=["key-1", "key-2", "key-3"], models=["model-a", "model-b"], system_prompt="s",
+            translation_note="", original_text="원문", thinking_budget=None,
+        ))
+
+    model_a_calls = [c for c in call_log if c[1] == "model-a"]
+    assert len(model_a_calls) == 2 * UNTRANSLATED_MAX_ATTEMPTS  # key-1, key-2 각각 최대 재시도까지만
+    assert ("key-3", "model-a") not in call_log
+    assert events[-1]["event"] == "done"
+    assert "정상적으로 번역된" in events[-1]["data"]["translatedText"]
 
 
 async def test_multi_chunk_translation_round_robins_key_after_each_success_to_spread_rpm_load():
