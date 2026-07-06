@@ -12,12 +12,13 @@ import io.dedyn.jwlabs.dowoo.library.dto.LastReadRequest;
 import io.dedyn.jwlabs.dowoo.library.dto.NovelCreateRequest;
 import io.dedyn.jwlabs.dowoo.library.dto.NovelDetailResponse;
 import io.dedyn.jwlabs.dowoo.library.dto.NovelPatchRequest;
+import io.dedyn.jwlabs.dowoo.library.dto.NovelPromptSelectRequest;
 import io.dedyn.jwlabs.dowoo.library.dto.NovelSummaryResponse;
 import io.dedyn.jwlabs.dowoo.library.dto.ReorderRequest;
 import io.dedyn.jwlabs.dowoo.library.entity.Novel;
-import io.dedyn.jwlabs.dowoo.library.entity.NovelPrompt;
-import io.dedyn.jwlabs.dowoo.library.repository.NovelPromptRepository;
+import io.dedyn.jwlabs.dowoo.library.entity.Prompt;
 import io.dedyn.jwlabs.dowoo.library.repository.NovelRepository;
+import io.dedyn.jwlabs.dowoo.library.repository.PromptRepository;
 import io.dedyn.jwlabs.dowoo.library.support.DefaultPrompts;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -38,7 +39,7 @@ import java.util.stream.Collectors;
 public class NovelService {
 
     private final NovelRepository novelRepository;
-    private final NovelPromptRepository novelPromptRepository;
+    private final PromptRepository promptRepository;
     private final ChapterRepository chapterRepository;
     private final CurrentUserProvider currentUserProvider;
     private final UserRepository userRepository;
@@ -56,6 +57,7 @@ public class NovelService {
         if (novelRepository.existsByUserIdAndSourceUrl(userId, request.sourceUrl())) {
             throw new ApiException(HttpStatus.CONFLICT, "DUPLICATE_NOVEL", "이미 서재에 등록된 소설입니다.");
         }
+        Prompt prompt = resolveOwnedPromptOrNull(userId, request.promptId());
 
         OffsetDateTime now = OffsetDateTime.now();
         Novel novel = new Novel();
@@ -65,18 +67,11 @@ public class NovelService {
         novel.setCoverUrl(request.coverUrl());
         novel.setSourceUrl(request.sourceUrl());
         novel.setSiteName(request.siteName());
+        novel.setPromptId(prompt != null ? prompt.getId() : null);
         novel.setOrderIndex((int) novelRepository.countByUserId(userId));
         novel.setCreatedAt(now);
         novel.setUpdatedAt(now);
         novel = novelRepository.save(novel);
-
-        NovelPrompt prompt = new NovelPrompt();
-        prompt.setNovel(novel);
-        prompt.setSystemPrompt(StringUtils.hasText(request.systemPrompt())
-                ? request.systemPrompt() : DefaultPrompts.SYSTEM_PROMPT);
-        prompt.setTranslationNote(request.translationNote());
-        prompt.setUpdatedAt(now);
-        novelPromptRepository.save(prompt);
 
         return toDetail(novel, prompt, List.of());
     }
@@ -84,7 +79,7 @@ public class NovelService {
     @Transactional(readOnly = true)
     public NovelDetailResponse getDetail(UUID novelId) {
         Novel novel = getOwnedNovel(novelId);
-        NovelPrompt prompt = novelPromptRepository.findByNovelId(novel.getId()).orElse(null);
+        Prompt prompt = novel.getPromptId() != null ? promptRepository.findById(novel.getPromptId()).orElse(null) : null;
         List<Chapter> chapters = chapterRepository.findByNovelIdOrderByChapterIndexAsc(novel.getId());
         return toDetail(novel, prompt, chapters);
     }
@@ -97,18 +92,30 @@ public class NovelService {
         if (request.coverUrl() != null) novel.setCoverUrl(request.coverUrl());
         novel.setUpdatedAt(OffsetDateTime.now());
 
-        NovelPrompt prompt = novelPromptRepository.findByNovelId(novel.getId()).orElseGet(() -> {
-            NovelPrompt p = new NovelPrompt();
-            p.setNovel(novel);
-            return p;
-        });
-        if (request.systemPrompt() != null) prompt.setSystemPrompt(request.systemPrompt());
-        if (request.translationNote() != null) prompt.setTranslationNote(request.translationNote());
-        prompt.setUpdatedAt(OffsetDateTime.now());
-        novelPromptRepository.save(prompt);
+        Prompt prompt = novel.getPromptId() != null ? promptRepository.findById(novel.getPromptId()).orElse(null) : null;
+        List<Chapter> chapters = chapterRepository.findByNovelIdOrderByChapterIndexAsc(novel.getId());
+        return toDetail(novel, prompt, chapters);
+    }
+
+    /** 소설 편집 모달의 프롬프트 선택 전용 - promptId=null은 "기본 프롬프트로 되돌린다"는 유효한 값이다. */
+    @Transactional
+    public NovelDetailResponse selectPrompt(UUID novelId, NovelPromptSelectRequest request) {
+        Novel novel = getOwnedNovel(novelId);
+        UUID userId = currentUserProvider.currentUserId();
+        Prompt prompt = resolveOwnedPromptOrNull(userId, request.promptId());
+        novel.setPromptId(prompt != null ? prompt.getId() : null);
+        novel.setUpdatedAt(OffsetDateTime.now());
 
         List<Chapter> chapters = chapterRepository.findByNovelIdOrderByChapterIndexAsc(novel.getId());
         return toDetail(novel, prompt, chapters);
+    }
+
+    private Prompt resolveOwnedPromptOrNull(UUID userId, UUID promptId) {
+        if (promptId == null) {
+            return null;
+        }
+        return promptRepository.findByIdAndUserId(promptId, userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "프롬프트를 찾을 수 없습니다."));
     }
 
     @Transactional
@@ -186,15 +193,15 @@ public class NovelService {
                 novel.getLastReadChapterIndex(), lastReadChapterTitle, novel.getOrderIndex(), novel.getUpdatedAt());
     }
 
-    private NovelDetailResponse toDetail(Novel novel, NovelPrompt prompt, List<Chapter> chapters) {
+    private NovelDetailResponse toDetail(Novel novel, Prompt prompt, List<Chapter> chapters) {
         List<ChapterSummaryResponse> chapterSummaries = chapters.stream()
                 .map(c -> new ChapterSummaryResponse(c.getId(), c.getTitle(), c.getSourceUrl(), c.getChapterIndex()))
                 .toList();
         return new NovelDetailResponse(
                 novel.getId(), novel.getTitle(), novel.getOriginalTitle(), novel.getCoverUrl(),
                 novel.getSourceUrl(), novel.getSiteName(),
-                prompt != null ? prompt.getSystemPrompt() : null,
-                prompt != null ? prompt.getTranslationNote() : null,
+                prompt != null ? prompt.getId() : null,
+                prompt != null ? prompt.getTitle() : DefaultPrompts.DEFAULT_PROMPT_TITLE,
                 novel.getLastReadChapterIndex(), novel.getLastReadScrollPos(), novel.getOrderIndex(),
                 chapterSummaries, novel.getCreatedAt(), novel.getUpdatedAt());
     }

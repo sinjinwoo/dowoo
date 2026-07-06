@@ -12,10 +12,7 @@ import io.dedyn.jwlabs.dowoo.book.repository.ChapterRepository;
 import io.dedyn.jwlabs.dowoo.common.exception.ApiException;
 import io.dedyn.jwlabs.dowoo.common.util.UrlValidator;
 import io.dedyn.jwlabs.dowoo.library.entity.Novel;
-import io.dedyn.jwlabs.dowoo.library.entity.NovelPrompt;
-import io.dedyn.jwlabs.dowoo.library.repository.NovelPromptRepository;
 import io.dedyn.jwlabs.dowoo.library.repository.NovelRepository;
-import io.dedyn.jwlabs.dowoo.library.support.DefaultPrompts;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -39,7 +36,6 @@ public class ReadService {
 
     private final ChapterRepository chapterRepository;
     private final NovelRepository novelRepository;
-    private final NovelPromptRepository novelPromptRepository;
     private final CurrentUserProvider currentUserProvider;
     private final UserRepository userRepository;
     private final CrawlClient crawlClient;
@@ -101,13 +97,9 @@ public class ReadService {
             novel.setOrderIndex((int) novelRepository.countByUserId(userId));
             novel.setCreatedAt(now);
             novel.setUpdatedAt(now);
+            // promptId는 비워둔다(=사용자의 기본 프롬프트를 쓴다) - NovelService.selectPrompt로
+            // 나중에 특정 프롬프트를 골라 연결할 수 있다.
             novel = novelRepository.save(novel);
-
-            NovelPrompt prompt = new NovelPrompt();
-            prompt.setNovel(novel);
-            prompt.setSystemPrompt(DefaultPrompts.SYSTEM_PROMPT);
-            prompt.setUpdatedAt(now);
-            novelPromptRepository.save(prompt);
         }
 
         Chapter chapter = new Chapter();
@@ -140,12 +132,6 @@ public class ReadService {
         novel.setCreatedAt(now);
         novel.setUpdatedAt(now);
         novel = novelRepository.save(novel);
-
-        NovelPrompt prompt = new NovelPrompt();
-        prompt.setNovel(novel);
-        prompt.setSystemPrompt(DefaultPrompts.SYSTEM_PROMPT);
-        prompt.setUpdatedAt(now);
-        novelPromptRepository.save(prompt);
 
         Chapter chapter = new Chapter();
         chapter.setNovel(novel);

@@ -5,6 +5,7 @@ import io.dedyn.jwlabs.dowoo.library.dto.LastReadRequest;
 import io.dedyn.jwlabs.dowoo.library.dto.NovelCreateRequest;
 import io.dedyn.jwlabs.dowoo.library.dto.NovelDetailResponse;
 import io.dedyn.jwlabs.dowoo.library.dto.NovelPatchRequest;
+import io.dedyn.jwlabs.dowoo.library.dto.NovelPromptSelectRequest;
 import io.dedyn.jwlabs.dowoo.library.dto.NovelSummaryResponse;
 import io.dedyn.jwlabs.dowoo.library.dto.ReorderRequest;
 import io.dedyn.jwlabs.dowoo.library.service.NovelService;
@@ -58,6 +59,12 @@ public class NovelController {
     public ResponseEntity<ApiResponse<NovelDetailResponse>> patch(
             @PathVariable UUID novelId, @RequestBody NovelPatchRequest request) {
         return ResponseEntity.ok(ApiResponse.success(200, novelService.patch(novelId, request), "수정되었습니다."));
+    }
+
+    @PatchMapping("/{novelId}/prompt")
+    public ResponseEntity<ApiResponse<NovelDetailResponse>> selectPrompt(
+            @PathVariable UUID novelId, @RequestBody NovelPromptSelectRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(200, novelService.selectPrompt(novelId, request), "프롬프트가 변경되었습니다."));
     }
 
     @DeleteMapping("/{novelId}")
