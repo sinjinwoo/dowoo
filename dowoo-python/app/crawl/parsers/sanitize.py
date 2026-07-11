@@ -1,4 +1,5 @@
 import re
+import unicodedata
 
 # 옵스큐어 유니코드 결합 문자(악센트)를 글자마다 끼워 넣어 도메인을 가린 광고 워터마크 탐지용.
 # 예: "t + COMBINING LONG STROKE OVERLAY, w + COMBINING LONG STROKE OVERLAY, ..." 식으로
