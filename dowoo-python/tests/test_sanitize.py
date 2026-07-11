@@ -57,3 +57,54 @@ def test_preserves_blank_lines_and_line_order():
     text = "첫 줄\n\n둘째 줄"
 
     assert strip_ad_lines(text) == text
+
+
+def test_strips_mathematical_italic_domain_watermark():
+    # 𝑡𝑤𝑘𝑎𝑛.𝑐𝑜𝑚 - 유니코드 Mathematical Alphanumeric Symbols(이탤릭체)로 통째로 바꿔치기.
+    ad_line = "【記住本站域名 台灣小說網解書荒，𝑡𝑤𝑘𝑎𝑛.𝑐𝑜𝑚超實用 】"
+    text = f"{ad_line}\n정상적인 소설 본문 첫 줄입니다."
+
+    result = strip_ad_lines(text)
+
+    assert ad_line not in result.splitlines()
+    assert "정상적인 소설 본문 첫 줄입니다." in result.splitlines()
+
+
+def test_strips_mathematical_bold_domain_watermark():
+    ad_line = "【寫到這裡我希望讀者記一下我們域名 追台灣小說認準台灣小說網，𝐭𝐰𝐤𝐚𝐧.𝐜𝐨𝐦超靠譜 】"
+    text = f"{ad_line}\n다음 문장입니다."
+
+    result = strip_ad_lines(text)
+
+    assert ad_line not in result.splitlines()
+    assert "다음 문장입니다." in result.splitlines()
+
+
+def test_strips_negative_circled_domain_watermark():
+    # 🅣🅦🅚🅐🅝.🅒🅞🅜 - NFKC 정규화로도 안 풀리는 이모지풍 동그라미 문자로 바꿔치기.
+    ad_line = "【寫到這裡我希望讀者記一下我們域名 台灣小說網解悶好，🅣🅦🅚🅐🅝.🅒🅞🅜隨時看 】"
+    text = f"{ad_line}\n다음 문장입니다."
+
+    result = strip_ad_lines(text)
+
+    assert ad_line not in result.splitlines()
+    assert "다음 문장입니다." in result.splitlines()
+
+
+def test_strips_domain_with_separator_characters_between_letters():
+    # 결합 문자가 아니라 평범한 구분 문자(슬래시, 가운뎃점 등)로 글자를 벌려놓는 방식.
+    for obfuscated in ("t/w/k/a/n.com", "t·w·k·a·n.com", "t-w-k-a-n.com"):
+        ad_line = f"이 소설은 {obfuscated}에서 검색하세요"
+        text = f"{ad_line}\n다음 문장입니다."
+
+        result = strip_ad_lines(text)
+
+        assert ad_line not in result.splitlines(), f"failed for {obfuscated!r}"
+        assert "다음 문장입니다." in result.splitlines()
+
+
+def test_does_not_fold_normal_cjk_and_hangul_text():
+    # fold 로직이 한중일 문자에는 손대지 않아야 한다(글자 이름이 라틴 계열이 아니므로).
+    text = "정상적인 소설 본문 첫 줄입니다. 記住本站域名 같은 한자도 안전한가?"
+
+    assert strip_ad_lines(text) == text
