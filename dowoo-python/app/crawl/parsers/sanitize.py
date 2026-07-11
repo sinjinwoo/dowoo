@@ -24,6 +24,8 @@ COMBINING_WATERMARK_MIN_RATIO = 0.15
 # (결합 문자로 도메인을 가린 난독화 버전은 이 목록과 무관하게 COMBINING_MARK_RE가 잡는다.)
 AD_SITE_TOKENS = ("twkan", "69shuba", "ixdzs", "xsw.tw", "m.xsw")
 AD_PHRASE_TOKENS = (
+    "검색하세요",
+    "검색해보세요",
     "请搜索",
     "本站域名",
     "记住本站",
@@ -83,6 +85,7 @@ def _is_known_ad_line(line: str) -> bool:
     if not has_site:
         return False
     return any(token in line for token in AD_PHRASE_TOKENS) or "www." in folded
+
 
 def strip_ad_lines(text: str) -> str:
     """스크래핑한 본문에 섞여 들어온 사이트 광고/워터마크 줄을 제거한다.
