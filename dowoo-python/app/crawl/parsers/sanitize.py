@@ -1,4 +1,5 @@
 import re
+import unicodedata
 
 # 옵스큐어 유니코드 결합 문자(악센트)를 글자마다 끼워 넣어 도메인을 가린 광고 워터마크 탐지용.
 # 예: "t + COMBINING LONG STROKE OVERLAY, w + COMBINING LONG STROKE OVERLAY, ..." 식으로
@@ -18,12 +19,47 @@ COMBINING_WATERMARK_MIN_MARKS = 4
 COMBINING_WATERMARK_MIN_RATIO = 0.15
 
 # 크롤링 대상 사이트가 본문에 평문으로 섞어 넣는 광고 줄에는 항상 자기 사이트 도메인/이름이
-# 들어간다는 공통점이 있다 - "사이트명 키워드 + 광고성 문구"가 함께 있을 때만 걸러내므로,
-# 소설 내 시스템 메시지 블록(【任务...】 등)처럼 사이트명이 없는 브라켓 문단은 걸리지 않는다.
+# 들어간다는 공통점이 있다 - 사이트 토큰 자체가 소설 등장인물 이름 등으로 우연히 나타날
+# 가능성은 사실상 없으므로(twkan/69shuba/ixdzs 같은 문자열이 정상 본문에 나올 일이 없다),
+# 광고 문구 동시 존재 여부와 무관하게 토큰 매칭만으로 광고 줄로 판단한다. 소설 내 시스템
+# 메시지 블록(【任务...】 등)처럼 사이트 토큰이 없는 브라켓 문단은 걸리지 않는다.
 # (결합 문자로 도메인을 가린 난독화 버전은 이 목록과 무관하게 COMBINING_MARK_RE가 잡는다.)
 AD_SITE_TOKENS = ("twkan", "69shuba", "ixdzs", "xsw.tw", "m.xsw")
-AD_PHRASE_TOKENS = ("검색하세요", "검색해보세요", "请搜索", "本站域名", "记住本站", "提供最新")
 AD_LINE_MAX_CHARS = 60
+
+# 도메인을 결합 문자가 아니라 "다른 글꼴처럼 보이는 별개 코드포인트"로 통째로 바꿔치기하는 수법
+# (수학 볼드/이탤릭 𝑡𝑤𝑘𝑎𝑛, 동그라미/네모 🅣🅦🅚🅐🅝, 전각 ｔｗｋａｎ 등) 대응.
+# 이런 문자들은 유니코드 이름에 항상 원래 라틴 알파벳이 그대로 들어있어
+# ("MATHEMATICAL ITALIC SMALL T", "NEGATIVE CIRCLED LATIN CAPITAL LETTER T") 이름에서 마지막
+# 한 글자만 뽑아내면 블록이 무엇이든(NFKC 호환 분해 매핑이 없는 이모지풍 문자 포함) 되돌릴 수 있다.
+_FANCY_LATIN_LETTER_RE = re.compile(r"(?:LATIN |MATHEMATICAL \w+ )(SMALL|CAPITAL)(?: LETTER)? ([A-Z])\b")
+
+
+def _fold_fancy_letter(ch: str) -> str:
+    if ch.isascii():
+        return ch
+    match = _FANCY_LATIN_LETTER_RE.search(unicodedata.name(ch, ""))
+    if not match:
+        return ch
+    letter = match.group(2)
+    return letter.lower() if match.group(1) == "SMALL" else letter
+
+
+def _fold_fancy_letters(line: str) -> str:
+    return "".join(_fold_fancy_letter(ch) for ch in line)
+
+
+# 도메인 글자 사이사이에 (결합 문자가 아니라) 슬래시/가운뎃점/공백류 같은 평범한 구분 문자를
+# 끼워 넣어 "twkan" 문자열 자체를 끊어버리는 수법 대응 - 사이트 토큰 글자마다 그 사이에 문자가
+# 아닌 것(공백/기호/제로폭 문자 등)이 최대 2개까지 끼어 있어도 매칭되게 한다.
+_FUZZY_FILLER = r"[\W_]{0,2}"
+
+
+def _build_fuzzy_token_re(token: str) -> re.Pattern:
+    return re.compile(_FUZZY_FILLER.join(re.escape(ch) for ch in token))
+
+
+_AD_SITE_TOKEN_PATTERNS = tuple(_build_fuzzy_token_re(token) for token in AD_SITE_TOKENS)
 
 
 def _is_combining_watermark(line: str) -> bool:
@@ -36,11 +72,8 @@ def _is_combining_watermark(line: str) -> bool:
 def _is_known_ad_line(line: str) -> bool:
     if not line or len(line) > AD_LINE_MAX_CHARS:
         return False
-    lowered = line.lower()
-    has_site = any(token in lowered for token in AD_SITE_TOKENS)
-    if not has_site:
-        return False
-    return any(token in line for token in AD_PHRASE_TOKENS) or "www." in lowered
+    folded = _fold_fancy_letters(line).lower()
+    return any(pattern.search(folded) for pattern in _AD_SITE_TOKEN_PATTERNS)
 
 
 def strip_ad_lines(text: str) -> str:
