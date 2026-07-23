@@ -53,12 +53,15 @@ public class TranslateService {
 
     // 사용자가 모델을 지정하지 않으면(설정 미지정=자동) 이 순서로 시도한다 - 무료 티어에서 안정적으로
     // 쓸 수 있는 모델 우선. 유료 전용 모델(Pro 계열)은 자동 목록에서 제외한다.
+    // 2026-07-23 업데이트: gemini-3.6-flash, gemini-3.5-flash-lite 추가(둘 다 무료 티어 제공 확인)
+    // 및 순서 조정 - 최신 세대를 최우선으로 시도한다. 기존 gemini-3-flash-preview/gemini-2.5-flash는
+    // 안전망으로 뒤에 남겨둔다 - 새 모델이 계정별로 무료 티어에서 실패하는 경우에도 gemini_client의
+    // 빈 응답/미번역 감지 로직이 자동으로 다음 모델로 넘어가므로 그대로 남겨도 안전하다.
     // 주의: "gemini-3-flash"(비-preview, stable 이름)는 아직 API에 실제로 존재하지 않아 404가 나므로
-    // 반드시 "gemini-3-flash-preview"를 써야 한다(2026-07-05 확인). preview 모델이 무료 티어에서
-    // 결제 없이도 동작하는지는 키마다 다를 수 있는데, 여기서 실패해도 gemini_client의 빈 응답/미번역
-    // 감지 로직이 자동으로 다음 모델(gemini-2.5-flash)로 넘어가므로 자동 목록에 남겨도 안전하다.
+    // 반드시 "gemini-3-flash-preview"를 써야 한다(2026-07-05 확인).
     private static final List<String> DEFAULT_MODEL_FALLBACK =
-            List.of("gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-3.5-flash");
+            List.of("gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.5-flash",
+                    "gemini-3-flash-preview", "gemini-2.5-flash");
 
     // 내부망 커넥션 연결이라 짧게 잡아도 충분하다.
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);

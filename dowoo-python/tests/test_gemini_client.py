@@ -5,6 +5,10 @@ gemini_client.translate_stream의 키 로테이션/에러 분류 로직을 검�
 없이 "여러 키를 순환하는지", "재시도 가능/불가능 에러를 올바르게 구분하는지",
 "빈 응답도 실패로 취급하는지" 같은 로직만 검증한다. 실제 키로 Gemini 연동 자체가
 되는지는 별도의 수동 스모크 테스트로 확인할 것 (이 테스트 스위트의 대상이 아님).
+
+2026-07-23: generateContent → Interactions API(client.aio.interactions.create) 전환에 맞춰
+fake 스트림을 chunk.text가 아닌 step.delta 이벤트(event_type="step.delta", delta.type="text",
+delta.text=...) 형태로 방출하도록 갱신했다.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -30,14 +34,21 @@ def _no_real_sleep():
         yield mock_sleep
 
 
-class _FakeChunk:
+class _FakeTextDelta:
     def __init__(self, text):
+        self.type = "text"
         self.text = text
+
+
+class _FakeStepDeltaEvent:
+    def __init__(self, text):
+        self.event_type = "step.delta"
+        self.delta = _FakeTextDelta(text)
 
 
 async def _fake_stream(texts):
     for text in texts:
-        yield _FakeChunk(text)
+        yield _FakeStepDeltaEvent(text)
 
 
 class _FakeStatusError(Exception):
@@ -50,21 +61,21 @@ def _client_returning(texts):
     """항상 주어진 텍스트 조각들을 스트리밍하는 fake genai.Client 인스턴스."""
     client = MagicMock()
 
-    async def generate_content_stream(**kwargs):
+    async def interactions_create(**kwargs):
         return _fake_stream(texts)
 
-    client.aio.models.generate_content_stream = generate_content_stream
+    client.aio.interactions.create = interactions_create
     return client
 
 
 def _client_raising(exc):
-    """generate_content_stream 호출 시 항상 예외를 던지는 fake genai.Client 인스턴스."""
+    """interactions.create 호출 시 항상 예외를 던지는 fake genai.Client 인스턴스."""
     client = MagicMock()
 
-    async def generate_content_stream(**kwargs):
+    async def interactions_create(**kwargs):
         raise exc
 
-    client.aio.models.generate_content_stream = generate_content_stream
+    client.aio.interactions.create = interactions_create
     return client
 
 
@@ -116,7 +127,7 @@ def test_to_error_payload_maps_status_codes():
 
 async def test_no_api_keys_yields_error_without_calling_gemini():
     events = await _collect(translate_stream(
-        api_keys=[], models=["gemini-2.5-flash"], system_prompt="s", translation_note="",
+        api_keys=[], models=["gemini-3.6-flash"], system_prompt="s", translation_note="",
         original_text="hello", thinking_budget=None,
     ))
 
@@ -138,7 +149,7 @@ async def test_successful_translation_streams_lines_and_done():
 
     with _patch_genai_client({"key-a": client}):
         events = await _collect(translate_stream(
-            api_keys=["key-a"], models=["gemini-2.5-flash"], system_prompt="s", translation_note="",
+            api_keys=["key-a"], models=["gemini-3.6-flash"], system_prompt="s", translation_note="",
             original_text="원문 첫 줄\n원문 둘째 줄", thinking_budget=None,
         ))
 
@@ -155,7 +166,7 @@ async def test_key_rotation_falls_back_to_next_key_on_auth_error():
     with _patch_genai_client({"bad-key": failing_client, "good-key": working_client}), \
             patch("app.translate.gemini_client.random.randrange", return_value=0):
         events = await _collect(translate_stream(
-            api_keys=["bad-key", "good-key"], models=["gemini-2.5-flash"], system_prompt="s",
+            api_keys=["bad-key", "good-key"], models=["gemini-3.6-flash"], system_prompt="s",
             translation_note="", original_text="원문", thinking_budget=None,
         ))
 
@@ -169,7 +180,7 @@ async def test_all_keys_exhausted_yields_last_error():
     with _patch_genai_client({"key-a": client_a, "key-b": client_b}), \
             patch("app.translate.gemini_client.random.randrange", return_value=0):
         events = await _collect(translate_stream(
-            api_keys=["key-a", "key-b"], models=["gemini-2.5-flash"], system_prompt="s",
+            api_keys=["key-a", "key-b"], models=["gemini-3.6-flash"], system_prompt="s",
             translation_note="", original_text="원문", thinking_budget=None,
         ))
 
@@ -184,13 +195,13 @@ async def test_non_retryable_error_skips_remaining_keys_for_that_model():
     def make_client(api_key):
         client = MagicMock()
 
-        async def generate_content_stream(model, **kwargs):
+        async def interactions_create(model, **kwargs):
             call_log.append((api_key, model))
             if model == "model-a":
                 raise _FakeStatusError(500, "bad model name")
             return _fake_stream(["ok"])
 
-        client.aio.models.generate_content_stream = generate_content_stream
+        client.aio.interactions.create = interactions_create
         return client
 
     with patch("app.translate.gemini_client.genai.Client", side_effect=make_client), \
@@ -211,7 +222,7 @@ async def test_empty_response_without_exception_is_treated_as_retryable_failure(
     with _patch_genai_client({"bad-key": empty_client, "good-key": working_client}), \
             patch("app.translate.gemini_client.random.randrange", return_value=0):
         events = await _collect(translate_stream(
-            api_keys=["bad-key", "good-key"], models=["gemini-2.5-flash"], system_prompt="s",
+            api_keys=["bad-key", "good-key"], models=["gemini-3.6-flash"], system_prompt="s",
             translation_note="", original_text="원문", thinking_budget=None,
         ))
 
@@ -243,7 +254,7 @@ async def test_untranslated_response_falls_back_to_next_key_without_leaking_line
     with _patch_genai_client({"bad-key": bad_client, "good-key": good_client}), \
             patch("app.translate.gemini_client.random.randrange", return_value=0):
         events = await _collect(translate_stream(
-            api_keys=["bad-key", "good-key"], models=["gemini-2.5-flash"], system_prompt="s",
+            api_keys=["bad-key", "good-key"], models=["gemini-3.6-flash"], system_prompt="s",
             translation_note="", original_text="원문", thinking_budget=None,
         ))
 
@@ -261,18 +272,18 @@ async def test_untranslated_response_retries_same_key_before_rotating():
     call_count = {"n": 0}
     client = MagicMock()
 
-    async def generate_content_stream(**kwargs):
+    async def interactions_create(**kwargs):
         call_count["n"] += 1
         if call_count["n"] < 3:
             return _fake_stream([chinese_passthrough])
         return _fake_stream(["정상적으로 번역된 한국어 문장입니다 아주 자연스럽게 번역되었습니다"])
 
-    client.aio.models.generate_content_stream = generate_content_stream
+    client.aio.interactions.create = interactions_create
 
     with patch("app.translate.gemini_client.genai.Client", return_value=client) as client_ctor, \
             patch("app.translate.gemini_client.random.randrange", return_value=0):
         events = await _collect(translate_stream(
-            api_keys=["only-key"], models=["gemini-2.5-flash"], system_prompt="s",
+            api_keys=["only-key"], models=["gemini-3.6-flash"], system_prompt="s",
             translation_note="", original_text="원문", thinking_budget=None,
         ))
 
@@ -290,18 +301,18 @@ async def test_untranslated_retry_backs_off_between_same_key_attempts(_no_real_s
     call_count = {"n": 0}
     client = MagicMock()
 
-    async def generate_content_stream(**kwargs):
+    async def interactions_create(**kwargs):
         call_count["n"] += 1
         if call_count["n"] < 3:
             return _fake_stream([chinese_passthrough])
         return _fake_stream(["정상적으로 번역된 한국어 문장입니다 아주 자연스럽게 번역되었습니다"])
 
-    client.aio.models.generate_content_stream = generate_content_stream
+    client.aio.interactions.create = interactions_create
 
     with patch("app.translate.gemini_client.genai.Client", return_value=client), \
             patch("app.translate.gemini_client.random.randrange", return_value=0):
         events = await _collect(translate_stream(
-            api_keys=["only-key"], models=["gemini-2.5-flash"], system_prompt="s",
+            api_keys=["only-key"], models=["gemini-3.6-flash"], system_prompt="s",
             translation_note="", original_text="원문", thinking_budget=None,
         ))
 
@@ -340,16 +351,16 @@ async def test_multi_chunk_translation_calls_gemini_once_per_chunk_and_concatena
     call_count = {"n": 0}
     client = MagicMock()
 
-    async def generate_content_stream(**kwargs):
+    async def interactions_create(**kwargs):
         outputs = call_outputs[call_count["n"]]
         call_count["n"] += 1
         return _fake_stream(outputs)
 
-    client.aio.models.generate_content_stream = generate_content_stream
+    client.aio.interactions.create = interactions_create
 
     with _patch_genai_client({"key-a": client}):
         events = await _collect(translate_stream(
-            api_keys=["key-a"], models=["gemini-2.5-flash"], system_prompt="s",
+            api_keys=["key-a"], models=["gemini-3.6-flash"], system_prompt="s",
             translation_note="", original_text=original_text, thinking_budget=None,
         ))
 
@@ -371,13 +382,13 @@ async def test_untranslated_failure_on_two_keys_escalates_to_next_model_without_
     def make_client(api_key):
         client = MagicMock()
 
-        async def generate_content_stream(model, **kwargs):
+        async def interactions_create(model, **kwargs):
             call_log.append((api_key, model))
             if model == "model-a":
                 return _fake_stream([chinese_passthrough])
             return _fake_stream(["정상적으로 번역된 한국어 문장입니다 아주 자연스럽게 번역되었습니다"])
 
-        client.aio.models.generate_content_stream = generate_content_stream
+        client.aio.interactions.create = interactions_create
         return client
 
     with patch("app.translate.gemini_client.genai.Client", side_effect=make_client), \
@@ -407,17 +418,17 @@ async def test_multi_chunk_translation_round_robins_key_after_each_success_to_sp
     def make_client(api_key):
         client = MagicMock()
 
-        async def generate_content_stream(**kwargs):
+        async def interactions_create(**kwargs):
             call_log.append(api_key)
             return _fake_stream([f"translated-by-{api_key}"])
 
-        client.aio.models.generate_content_stream = generate_content_stream
+        client.aio.interactions.create = interactions_create
         return client
 
     with patch("app.translate.gemini_client.genai.Client", side_effect=make_client), \
             patch("app.translate.gemini_client.random.randrange", return_value=0):
         events = await _collect(translate_stream(
-            api_keys=["key-a", "key-b"], models=["gemini-2.5-flash"], system_prompt="s",
+            api_keys=["key-a", "key-b"], models=["gemini-3.6-flash"], system_prompt="s",
             translation_note="", original_text=original_text, thinking_budget=None,
         ))
 

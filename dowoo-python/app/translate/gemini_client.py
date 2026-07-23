@@ -4,7 +4,6 @@ import re
 from typing import AsyncIterator, Optional
 
 from google import genai
-from google.genai import types
 
 ASCII_PRINTABLE_RE = re.compile(r"^[\x21-\x7e]+$")
 STATUS_RE = re.compile(r"\b(4\d{2}|5\d{2})\b")
@@ -32,6 +31,24 @@ UNTRANSLATED_MODEL_ESCALATE_AFTER_KEYS = 2
 # "생각"만 하는 구간, docs/troubleshooting/18 참고) 중간에 끊길 위험이 커진다 - 원문을 1만자
 # 단위로 잘라 순차적으로 번역한다. 줄 단위 1:1 대응이 깨지면 안 되므로 반드시 줄 경계에서만 자른다.
 CHUNK_SIZE_CHARS = 10000
+
+# 2026-07-23: generateContent → Interactions API(client.interactions.create)로 전환.
+# Interactions API의 GenerationConfig에는 정수형 thinking_budget 필드가 아예 없고 문자열 enum
+# thinking_level("minimal"/"low"/"medium"/"high")만 존재한다(실제 SDK google.genai.interactions.
+# GenerationConfig 구조로 확인, 2026-07-23). 기존 UI/DB는 여전히 정수 예산만 저장하므로 모든
+# 모델 호출 시점에 이를 4단계 enum으로 근사 변환한다.
+def _budget_to_thinking_level(thinking_budget: int) -> str:
+    """기존 UI/DB는 여전히 정수 예산(thinkingBudget)만 저장하므로, 신세대 모델 호출 시점에
+    이를 4단계 enum으로 근사 변환한다. -1(무제한/다이내믹 사고)은 가장 높은 단계로 매핑한다."""
+    if thinking_budget < 0:
+        return "high"
+    if thinking_budget == 0:
+        return "minimal"
+    if thinking_budget <= 4096:
+        return "low"
+    if thinking_budget <= 16384:
+        return "medium"
+    return "high"
 
 
 def resolve_system_prompt(template: str, memo: str) -> str:
@@ -118,9 +135,9 @@ async def _try_one_key(
     연달아 요청하면 RPM 한도에 걸릴 수 있기 때문이다. 다른 키로 넘어갈 때는 별도 쿼터
     버킷이라 보고 대기 없이 바로 요청한다."""
     client = genai.Client(api_key=api_key)
-    config_kwargs: dict = {"system_instruction": resolved_prompt}
+    generation_config: dict = {}
     if thinking_budget is not None:
-        config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=thinking_budget)
+        generation_config["thinking_level"] = _budget_to_thinking_level(thinking_budget)
 
     for attempt in range(UNTRANSLATED_MAX_ATTEMPTS):
         is_last_attempt = attempt == UNTRANSLATED_MAX_ATTEMPTS - 1
@@ -142,13 +159,20 @@ async def _try_one_key(
             return not _looks_untranslated("\n".join(pending_lines))
 
         try:
-            stream = await client.aio.models.generate_content_stream(
+            stream = await client.aio.interactions.create(
                 model=model,
-                contents=chunk_text,
-                config=types.GenerateContentConfig(**config_kwargs),
+                input=chunk_text,
+                stream=True,
+                system_instruction=resolved_prompt,
+                **({"generation_config": generation_config} if generation_config else {}),
             )
-            async for chunk in stream:
-                text = chunk.text
+            async for event in stream:
+                if event.event_type != "step.delta":
+                    continue
+                delta = event.delta
+                if getattr(delta, "type", None) != "text":
+                    continue
+                text = delta.text
                 if not text:
                     continue
                 buffer += text
