@@ -11,6 +11,7 @@ import io.dedyn.jwlabs.dowoo.settings.entity.ApiKey;
 import io.dedyn.jwlabs.dowoo.settings.entity.ApiKeySetting;
 import io.dedyn.jwlabs.dowoo.settings.repository.ApiKeyRepository;
 import io.dedyn.jwlabs.dowoo.settings.repository.ApiKeySettingRepository;
+import io.dedyn.jwlabs.dowoo.settings.support.DefaultModelOrder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -45,6 +46,7 @@ public class ApiKeySettingsService {
         return new ApiSettingsResponse(
                 setting != null ? setting.getModel() : null,
                 setting != null ? setting.getThinkingBudget() : null,
+                DefaultModelOrder.parseOrDefault(setting != null ? setting.getModelOrder() : null),
                 items);
     }
 
@@ -58,6 +60,10 @@ public class ApiKeySettingsService {
                 }
             }
         }
+        if (request.modelOrder() != null && !DefaultModelOrder.isValidPermutation(request.modelOrder())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_MODEL_ORDER",
+                    "자동 모델 순서에 알 수 없는 모델이 포함되어 있거나 목록이 올바르지 않습니다.");
+        }
 
         UUID userId = currentUserProvider.currentUserId();
         User userRef = userRepository.getReferenceById(userId);
@@ -69,6 +75,9 @@ public class ApiKeySettingsService {
         });
         setting.setModel(request.model());
         setting.setThinkingBudget(request.thinkingBudget());
+        if (request.modelOrder() != null) {
+            setting.setModelOrder(DefaultModelOrder.serialize(request.modelOrder()));
+        }
         setting.setUpdatedAt(OffsetDateTime.now());
         apiKeySettingRepository.save(setting);
 

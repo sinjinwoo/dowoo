@@ -14,6 +14,7 @@ import io.dedyn.jwlabs.dowoo.settings.entity.ApiKey;
 import io.dedyn.jwlabs.dowoo.settings.entity.ApiKeySetting;
 import io.dedyn.jwlabs.dowoo.settings.repository.ApiKeyRepository;
 import io.dedyn.jwlabs.dowoo.settings.repository.ApiKeySettingRepository;
+import io.dedyn.jwlabs.dowoo.settings.support.DefaultModelOrder;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -50,18 +51,6 @@ import java.util.concurrent.atomic.AtomicLong;
 /** api-spec.md §7.1 구현 - AI API의 POST /internal/translate/stream(§9.2)을 호출해 SSE를 그대로 릴레이한다. */
 @Service
 public class TranslateService {
-
-    // 사용자가 모델을 지정하지 않으면(설정 미지정=자동) 이 순서로 시도한다 - 무료 티어에서 안정적으로
-    // 쓸 수 있는 모델 우선. 유료 전용 모델(Pro 계열)은 자동 목록에서 제외한다.
-    // 2026-07-23 업데이트: gemini-3.6-flash, gemini-3.5-flash-lite 추가(둘 다 무료 티어 제공 확인)
-    // 및 순서 조정 - 최신 세대를 최우선으로 시도한다. 기존 gemini-3-flash-preview/gemini-2.5-flash는
-    // 안전망으로 뒤에 남겨둔다 - 새 모델이 계정별로 무료 티어에서 실패하는 경우에도 gemini_client의
-    // 빈 응답/미번역 감지 로직이 자동으로 다음 모델로 넘어가므로 그대로 남겨도 안전하다.
-    // 주의: "gemini-3-flash"(비-preview, stable 이름)는 아직 API에 실제로 존재하지 않아 404가 나므로
-    // 반드시 "gemini-3-flash-preview"를 써야 한다(2026-07-05 확인).
-    private static final List<String> DEFAULT_MODEL_FALLBACK =
-            List.of("gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.5-flash",
-                    "gemini-3-flash-preview", "gemini-2.5-flash");
 
     // 내부망 커넥션 연결이라 짧게 잡아도 충분하다.
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
@@ -130,10 +119,11 @@ public class TranslateService {
                     "번역에 사용할 API 키가 없습니다. 설정 화면에서 API 키를 입력해주세요.");
         }
         ApiKeySetting setting = apiKeySettingRepository.findByUserId(userId).orElse(null);
-        // 사용자가 모델을 명시했으면 그 모델만 시도(실패하면 그대로 실패) - 아니면 무료 친화적 모델을 순서대로 시도.
+        // 사용자가 모델을 명시했으면 그 모델만 시도(실패하면 그대로 실패) - 아니면 무료 친화적 모델을
+        // (사용자가 설정 화면에서 커스텀했으면 그 순서로, 아니면 DefaultModelOrder 기본 순서로) 시도.
         List<String> models = (setting != null && StringUtils.hasText(setting.getModel()))
                 ? List.of(setting.getModel())
-                : DEFAULT_MODEL_FALLBACK;
+                : DefaultModelOrder.parseOrDefault(setting != null ? setting.getModelOrder() : null);
         Integer thinkingBudget = setting != null ? setting.getThinkingBudget() : null;
 
         Prompt prompt = resolveEffectivePrompt(userId, novel.getPromptId());

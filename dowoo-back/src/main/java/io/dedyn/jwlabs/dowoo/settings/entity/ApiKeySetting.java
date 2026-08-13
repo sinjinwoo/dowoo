@@ -29,6 +29,10 @@ public class ApiKeySetting {
     @Column(name = "thinking_budget")
     private Integer thinkingBudget;
 
+    // 콤마로 구분된 모델 id 목록("자동" 모드에서 시도할 순서). NULL이면 DefaultModelOrder.MODELS를 쓴다.
+    @Column(name = "model_order")
+    private String modelOrder;
+
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 }
