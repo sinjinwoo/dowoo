@@ -44,24 +44,31 @@ def _build_challenge_url(original_url: str, token: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, f"challenge={quote(token, safe='')}", ""))
 
 
-def _get_sync(session, url: str, headers: dict):
-    return session.get(url, headers=headers, timeout=20, impersonate="chrome")
+def _get_sync(session, url: str, headers: dict, verify: bool):
+    return session.get(url, headers=headers, timeout=20, impersonate="chrome", verify=verify)
 
 
-async def _get(session, url: str, headers: dict):
-    return await asyncio.to_thread(_get_sync, session, url, headers)
+async def _get(session, url: str, headers: dict, verify: bool):
+    return await asyncio.to_thread(_get_sync, session, url, headers, verify)
 
 
 # 헤드리스 브라우저는 Cloudflare에 자동화 브라우저로 감지되어 챌린지를 통과하지 못하는
 # 사이트(69shuba.com)가 있어, TLS 지문까지 실제 크롬처럼 흉내내는 curl_cffi로 통일한다.
-async def fetch_impersonated(url: str, max_retries: int = 5) -> str:
+#
+# verify=False가 필요한 사이트(m.xsw.tw)가 있다: 서버가 리프 인증서만 보내고 중간(intermediate)
+# 인증서를 체인에 포함하지 않아, 브라우저는 캐시된 중간 인증서로 우회 검증하지만 curl류
+# 클라이언트는 "unable to get local issuer certificate"(curl 에러 60)로 실패한다
+# (openssl s_client로 확인: issuer가 Certum DV TLS G2 R39 CA인데 체인에 리프 인증서 1장뿐).
+# 서버 쪽 설정 문제라 클라이언트에서 고칠 수 없으므로, 로그인/자격증명이 오가지 않는 읽기전용
+# 크롤링 대상이라는 점을 감안해 해당 호스트에 한해 인증서 검증을 끈다.
+async def fetch_impersonated(url: str, max_retries: int = 5, verify: bool = True) -> str:
     headers = {"User-Agent": USER_AGENT, "Referer": url}
     session = curl_requests.Session()
 
     last_status = None
     for attempt in range(max_retries):
         try:
-            response = await _get(session, url, headers)
+            response = await _get(session, url, headers, verify)
         except Exception as e:
             raise CrawlError("CRAWL_TARGET_ERROR", 502, f"대상 사이트 요청 실패: {e}") from e
 
@@ -71,7 +78,7 @@ async def fetch_impersonated(url: str, max_retries: int = 5) -> str:
             if token is None:
                 return html
 
-            challenge_response = await _get(session, _build_challenge_url(url, token), headers)
+            challenge_response = await _get(session, _build_challenge_url(url, token), headers, verify)
             if challenge_response.status_code == 200:
                 return _decode_html(challenge_response)
             last_status = challenge_response.status_code
