@@ -32,7 +32,7 @@ AD_LINE_MAX_CHARS = 60
 # 이런 문자들은 유니코드 이름에 항상 원래 라틴 알파벳이 그대로 들어있어
 # ("MATHEMATICAL ITALIC SMALL T", "NEGATIVE CIRCLED LATIN CAPITAL LETTER T") 이름에서 마지막
 # 한 글자만 뽑아내면 블록이 무엇이든(NFKC 호환 분해 매핑이 없는 이모지풍 문자 포함) 되돌릴 수 있다.
-_FANCY_LATIN_LETTER_RE = re.compile(r"(?:LATIN |MATHEMATICAL \w+ )(SMALL|CAPITAL)(?: LETTER)? ([A-Z])\b")
+_FANCY_LATIN_LETTER_RE = re.compile(r"(?:LATIN |MATHEMATICAL [A-Z][-A-Z ]* )(SMALL|CAPITAL)(?: LETTER)? ([A-Z])\b")
 
 
 def _fold_fancy_letter(ch: str) -> str:

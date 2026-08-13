@@ -1,3 +1,4 @@
+from functools import partial
 from urllib.parse import urljoin, urlparse
 
 from app.crawl.fetcher import fetch_impersonated
@@ -10,9 +11,12 @@ from app.exceptions import CrawlError
 # 4개 사이트 모두 curl_cffi(impersonate="chrome")로 통일해서 가져온다.
 # 헤드리스 브라우저(Playwright)는 69shuba.com의 Cloudflare가 자동화 브라우저로 감지해
 # 챌린지를 계속 막아서 포기 - TLS 지문까지 흉내내는 curl_cffi가 훨씬 안정적으로 뚫린다.
+#
+# m.xsw.tw는 서버가 인증서 체인에 중간 인증서를 빠뜨려(curl 에러 60,
+# fetcher.py의 fetch_impersonated verify 주석 참고) 검증을 끄지 않으면 요청 자체가 실패한다.
 SITE_REGISTRY = {
     "ixdzs8.com": {"parser": parse_idx, "fetch": fetch_impersonated},
-    "m.xsw.tw": {"parser": parse_mxsw, "fetch": fetch_impersonated},
+    "m.xsw.tw": {"parser": parse_mxsw, "fetch": partial(fetch_impersonated, verify=False)},
     "69shuba.com": {"parser": parse_69shuba, "fetch": fetch_impersonated},
     "twkan.com": {"parser": parse_twkan, "fetch": fetch_impersonated},
 }

@@ -85,6 +85,20 @@ def test_strips_mathematical_bold_domain_watermark():
     assert "下一段正文。" in result.splitlines()
 
 
+def test_strips_double_struck_domain_watermark():
+    # 𝕥𝕨𝕜𝕒𝕟.𝕔𝕠𝕞 - 유니코드 이름이 "MATHEMATICAL DOUBLE-STRUCK SMALL T"처럼 스타일 설명에
+    # 하이픈이 들어가는 변형. 실제 twkan.com 크롤링에서 이 표기만 필터를 통과해 미번역
+    # 패스스루를 일으켰다(원인: _FANCY_LATIN_LETTER_RE가 "\\w+"라서 "DOUBLE-STRUCK"의
+    # 하이픈에서 매칭이 끊김).
+    ad_line = "【寫到這裡我希望讀者記一下我們域名 台灣小說網解悶好，𝕥𝕨𝕜𝕒𝕟.𝕔𝕠𝕞超實用 】"
+    text = f"{ad_line}\n下一段正文。"
+
+    result = strip_ad_lines(text)
+
+    assert ad_line not in result.splitlines()
+    assert "下一段正文。" in result.splitlines()
+
+
 def test_strips_negative_circled_domain_watermark():
     # 🅣🅦🅚🅐🅝.🅒🅞🅜 - NFKC 정규화로도 안 풀리는 이모지풍 동그라미 문자로 바꿔치기.
     ad_line = "【寫到這裡我希望讀者記一下我們域名 台灣小說網解悶好，🅣🅦🅚🅐🅝.🅒🅞🅜隨時看 】"
