@@ -2,23 +2,26 @@ import { useState } from 'react'
 import type { MaskedApiKey } from '../../api/settings'
 import BadgeSelect, { type BadgeSelectOption } from '../ui/BadgeSelect'
 import Button from '../ui/Button'
+import ModelOrderList from './ModelOrderList'
 
 export interface ApiSettingsPanelProps {
   model: string
   apiKeys: MaskedApiKey[]
+  modelOrder: string[]
   onModelChange: (model: string) => void
+  onModelOrderChange: (order: string[]) => void
   onAddKey: (key: string) => void
   onAddKeys: (keys: string[]) => void
   onDeleteKey: (keyId: string) => void
 }
 
 // "gemini-3-flash"(비-preview 이름)는 아직 API에 존재하지 않아 404가 나므로 반드시
-// "gemini-3-flash-preview"를 써야 한다(2026-07-05 확인, TranslateService.DEFAULT_MODEL_FALLBACK 참고).
+// "gemini-3-flash-preview"를 써야 한다(2026-07-05 확인, DefaultModelOrder.MODELS 참고).
 // 2026-07-23: gemini-3.5-flash-lite, gemini-3.6-flash 추가(둘 다 무료 티어 제공 확인).
-// "자동"을 고르면 서버가 gemini-3.6-flash → gemini-3.5-flash-lite → gemini-3.1-flash-lite →
-// gemini-3.5-flash → gemini-3-flash-preview → gemini-2.5-flash 순서로(키 로테이션을 모델마다
-// 전부 소진한 뒤) 시도한다. 특정 모델을 고르면 그 모델만 시도하고 실패하면 끝(Pro 계열은 자동
-// 목록에 없으므로 직접 선택해야 사용된다).
+// "자동"을 고르면 서버가 modelOrder(아래 드래그 리스트로 커스텀 가능, 기본값은
+// DefaultModelOrder.MODELS)를 순서대로(키 로테이션을 모델마다 전부 소진한 뒤) 시도한다.
+// 특정 모델을 고르면 그 모델만 시도하고 실패하면 끝(Pro 계열은 자동 목록에 없으므로 직접
+// 선택해야 사용된다 - 그래서 아래 드래그 리스트에는 등장하지 않는다).
 const modelOptions: BadgeSelectOption[] = [
   { value: '', label: '자동 (무료 모델 순서대로 시도)' },
   { value: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', badge: { text: '무료', tone: 'free' } },
@@ -35,7 +38,9 @@ const modelOptions: BadgeSelectOption[] = [
 export default function ApiSettingsPanel({
   model,
   apiKeys,
+  modelOrder,
   onModelChange,
+  onModelOrderChange,
   onAddKey,
   onAddKeys,
   onDeleteKey,
@@ -127,6 +132,18 @@ export default function ApiSettingsPanel({
       </label>
 
       <BadgeSelect label="번역 모델" value={model} options={modelOptions} onChange={onModelChange} />
+
+      <div>
+        <span className="mb-1 block text-sm text-gray-700 dark:text-gray-300">
+          자동 모드 시도 순서 {model && <span className="text-gray-400">(특정 모델을 선택 중이라 사용되지 않음)</span>}
+        </span>
+        <ModelOrderList
+          order={modelOrder}
+          options={modelOptions}
+          disabled={!!model}
+          onReorder={onModelOrderChange}
+        />
+      </div>
     </div>
   )
 }

@@ -11,6 +11,7 @@ import io.dedyn.jwlabs.dowoo.settings.entity.ApiKey;
 import io.dedyn.jwlabs.dowoo.settings.entity.ApiKeySetting;
 import io.dedyn.jwlabs.dowoo.settings.repository.ApiKeyRepository;
 import io.dedyn.jwlabs.dowoo.settings.repository.ApiKeySettingRepository;
+import io.dedyn.jwlabs.dowoo.settings.support.DefaultModelOrder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,6 +21,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.quality.Strictness;
 import org.mockito.junit.jupiter.MockitoSettings;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -109,7 +112,7 @@ class ApiKeySettingsServiceTest {
     @Test
     void replace_invalidKeyInList_throwsAndDoesNotTouchExistingKeys() {
         ApiSettingsUpdateRequest request = new ApiSettingsUpdateRequest(
-                List.of("valid-key", "invalid key"), "gemini-2.5-flash", null);
+                List.of("valid-key", "invalid key"), "gemini-2.5-flash", null, null);
 
         ApiException ex = assertThrows(ApiException.class, () -> service.replace(request));
 
@@ -130,10 +133,75 @@ class ApiKeySettingsServiceTest {
         });
         when(apiKeyRepository.findByUserIdOrderByKeyOrderAsc(USER_ID)).thenReturn(List.of());
 
-        ApiSettingsResponse response = service.replace(new ApiSettingsUpdateRequest(null, "gemini-2.5-pro", 1024));
+        ApiSettingsResponse response = service.replace(new ApiSettingsUpdateRequest(null, "gemini-2.5-pro", 1024, null));
 
         assertEquals("gemini-2.5-pro", response.model());
         verify(apiKeyRepository, never()).deleteByUserId(any());
         verify(apiKeyRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void get_noSetting_returnsDefaultModelOrder() {
+        when(apiKeySettingRepository.findByUserId(USER_ID)).thenReturn(Optional.empty());
+        when(apiKeyRepository.findByUserIdOrderByKeyOrderAsc(USER_ID)).thenReturn(List.of());
+
+        assertEquals(DefaultModelOrder.MODELS, service.get().modelOrder());
+    }
+
+    @Test
+    void replace_modelOrderMissingAModel_throwsAndDoesNotSave() {
+        List<String> brokenOrder = new ArrayList<>(DefaultModelOrder.MODELS.subList(0, DefaultModelOrder.MODELS.size() - 1));
+        ApiSettingsUpdateRequest request = new ApiSettingsUpdateRequest(null, null, null, brokenOrder);
+
+        ApiException ex = assertThrows(ApiException.class, () -> service.replace(request));
+
+        assertEquals("INVALID_MODEL_ORDER", ex.getErrorCode());
+        verify(apiKeySettingRepository, never()).save(any());
+    }
+
+    @Test
+    void replace_modelOrderWithUnknownModel_throwsAndDoesNotSave() {
+        List<String> brokenOrder = new ArrayList<>(DefaultModelOrder.MODELS);
+        brokenOrder.set(0, "gemini-not-a-real-model");
+        ApiSettingsUpdateRequest request = new ApiSettingsUpdateRequest(null, null, null, brokenOrder);
+
+        ApiException ex = assertThrows(ApiException.class, () -> service.replace(request));
+
+        assertEquals("INVALID_MODEL_ORDER", ex.getErrorCode());
+        verify(apiKeySettingRepository, never()).save(any());
+    }
+
+    @Test
+    void replace_validModelOrder_persistsAndReturnsCustomOrder() {
+        AtomicReference<ApiKeySetting> saved = new AtomicReference<>();
+        when(apiKeySettingRepository.findByUserId(USER_ID)).thenAnswer(inv -> Optional.ofNullable(saved.get()));
+        when(apiKeySettingRepository.save(any(ApiKeySetting.class))).thenAnswer(inv -> {
+            saved.set(inv.getArgument(0));
+            return inv.getArgument(0);
+        });
+        when(apiKeyRepository.findByUserIdOrderByKeyOrderAsc(USER_ID)).thenReturn(List.of());
+
+        List<String> customOrder = new ArrayList<>(DefaultModelOrder.MODELS);
+        Collections.reverse(customOrder);
+
+        ApiSettingsResponse response = service.replace(new ApiSettingsUpdateRequest(null, null, null, customOrder));
+
+        assertEquals(customOrder, response.modelOrder());
+    }
+
+    @Test
+    void replace_nullModelOrder_leavesExistingCustomOrderUntouched() {
+        List<String> customOrder = new ArrayList<>(DefaultModelOrder.MODELS);
+        Collections.reverse(customOrder);
+        ApiKeySetting existing = new ApiKeySetting();
+        existing.setModel("gemini-2.5-flash");
+        existing.setModelOrder(DefaultModelOrder.serialize(customOrder));
+        when(apiKeySettingRepository.findByUserId(USER_ID)).thenReturn(Optional.of(existing));
+        when(apiKeySettingRepository.save(any(ApiKeySetting.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(apiKeyRepository.findByUserIdOrderByKeyOrderAsc(USER_ID)).thenReturn(List.of());
+
+        ApiSettingsResponse response = service.replace(new ApiSettingsUpdateRequest(null, "gemini-2.5-flash", null, null));
+
+        assertEquals(customOrder, response.modelOrder());
     }
 }

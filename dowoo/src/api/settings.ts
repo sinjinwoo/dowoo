@@ -10,13 +10,16 @@ export interface MaskedApiKey {
 export interface ApiSettingsResponse {
   model: string | null
   thinkingBudget: number | null
+  modelOrder: string[]
   apiKeys: MaskedApiKey[]
 }
 
 export const getApiSettings = () => apiGet<ApiSettingsResponse>('/api/v1/settings/api')
 
-export const saveModelSettings = (model: string, thinkingBudget?: number) =>
-  apiPut<ApiSettingsResponse>('/api/v1/settings/api', { model, thinkingBudget })
+// modelOrder를 생략하면(undefined) 서버가 기존에 저장된 순서를 그대로 둔다 - model만 바꾸는
+// 요청(BadgeSelect onChange)이 매번 순서까지 같이 안 보내도 커스텀 순서가 초기화되지 않는다.
+export const saveModelSettings = (model: string, thinkingBudget?: number, modelOrder?: string[]) =>
+  apiPut<ApiSettingsResponse>('/api/v1/settings/api', { model, thinkingBudget, modelOrder })
 
 export const addApiKey = (apiKey: string) =>
   apiPost<ApiSettingsResponse>('/api/v1/settings/api/keys', { apiKey })

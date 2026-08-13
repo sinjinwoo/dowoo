@@ -65,7 +65,12 @@ function App() {
   const [currentChapterIndex, setCurrentChapterIndex] = useState(0)
   const [activeChapter, setActiveChapter] = useState<Chapter | null>(null)
 
-  const [apiSettings, setApiSettings] = useState<ApiSettingsResponse>({ model: '', thinkingBudget: null, apiKeys: [] })
+  const [apiSettings, setApiSettings] = useState<ApiSettingsResponse>({
+    model: '',
+    thinkingBudget: null,
+    modelOrder: [],
+    apiKeys: [],
+  })
   const [theme, setTheme] = useState<ThemeSettings>(defaultTheme)
   const [customThemePresets, setCustomThemePresets] = useState<{ name: string; theme: Partial<ThemeSettings> }[]>([])
 
@@ -481,7 +486,13 @@ function App() {
         onClose={() => setIsSettingsOpen(false)}
         model={apiSettings.model ?? ''}
         apiKeys={apiSettings.apiKeys}
+        modelOrder={apiSettings.modelOrder}
         onModelChange={(model) => void saveModelSettings(model, apiSettings.thinkingBudget ?? undefined).then(setApiSettings)}
+        onModelOrderChange={(order) =>
+          void saveModelSettings(apiSettings.model ?? '', apiSettings.thinkingBudget ?? undefined, order).then(
+            setApiSettings
+          )
+        }
         onAddApiKey={(key) => void addApiKey(key).then(setApiSettings)}
         onAddApiKeys={(keys) => void addApiKeys(keys).then(setApiSettings)}
         onDeleteApiKey={(keyId) => {

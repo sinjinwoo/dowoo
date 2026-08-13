@@ -6,6 +6,7 @@ import java.util.UUID;
 public record ApiSettingsResponse(
         String model,
         Integer thinkingBudget,
+        List<String> modelOrder,
         List<ApiKeyItem> apiKeys
 ) {
     public record ApiKeyItem(UUID id, String masked, Integer order) {

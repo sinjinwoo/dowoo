@@ -11,7 +11,9 @@ export interface SettingsDrawerProps {
   onClose: () => void
   model: string
   apiKeys: MaskedApiKey[]
+  modelOrder: string[]
   onModelChange: (model: string) => void
+  onModelOrderChange: (order: string[]) => void
   onAddApiKey: (key: string) => void
   onAddApiKeys: (keys: string[]) => void
   onDeleteApiKey: (keyId: string) => void
@@ -27,7 +29,9 @@ export default function SettingsDrawer({
   onClose,
   model,
   apiKeys,
+  modelOrder,
   onModelChange,
+  onModelOrderChange,
   onAddApiKey,
   onAddApiKeys,
   onDeleteApiKey,
@@ -52,7 +56,9 @@ export default function SettingsDrawer({
               <ApiSettingsPanel
                 model={model}
                 apiKeys={apiKeys}
+                modelOrder={modelOrder}
                 onModelChange={onModelChange}
+                onModelOrderChange={onModelOrderChange}
                 onAddKey={onAddApiKey}
                 onAddKeys={onAddApiKeys}
                 onDeleteKey={onDeleteApiKey}
