@@ -204,4 +204,19 @@ class ApiKeySettingsServiceTest {
 
         assertEquals(customOrder, response.modelOrder());
     }
+
+    @Test
+    void get_savedOrderMissingNewModels_keepsUserOrderAndAppendsNewModels() {
+        // 모델이 추가되기 전에 저장된 커스텀 순서(목록에서 빠진 모델 포함) - 초기화되지 않아야 한다.
+        ApiKeySetting existing = new ApiKeySetting();
+        existing.setModelOrder("gemini-3.1-flash-lite,gemini-removed-model,gemini-3.5-flash-lite");
+        when(apiKeySettingRepository.findByUserId(USER_ID)).thenReturn(Optional.of(existing));
+        when(apiKeyRepository.findByUserIdOrderByKeyOrderAsc(USER_ID)).thenReturn(List.of());
+
+        List<String> order = service.get().modelOrder();
+
+        assertEquals(List.of("gemini-3.1-flash-lite", "gemini-3.5-flash-lite"), order.subList(0, 2));
+        assertEquals(new java.util.HashSet<>(DefaultModelOrder.MODELS), new java.util.HashSet<>(order));
+        assertEquals(DefaultModelOrder.MODELS.size(), order.size());
+    }
 }

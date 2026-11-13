@@ -521,7 +521,7 @@
 {
   "status": 200,
   "data": {
-    "model": "gemini-2.5-flash",
+    "model": "gemini-4-hydrogen",
     "thinkingBudget": null,
     "apiKeys": [
       { "id": "k_1", "masked": "AIza********f92k", "order": 0 },
@@ -542,7 +542,7 @@
 | 필드명 | 타입 | 설명 | 필수 |
 | --- | --- | --- | --- |
 | apiKeys | String[] | 줄 단위로 입력된 키 목록, 배열 순서 = 로테이션 순서. 생략 시 기존 키 유지 | ❌ |
-| model | String | 예: `gemini-2.5-flash`, `gemini-2.5-pro` | ✅ |
+| model | String | 예: `gemini-4-hydrogen`, `gemini-4-carbon` | ✅ |
 | thinkingBudget | Integer | | ❌ |
 
 **🔥 ERROR**

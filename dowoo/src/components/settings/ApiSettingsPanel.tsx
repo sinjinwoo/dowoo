@@ -15,23 +15,25 @@ export interface ApiSettingsPanelProps {
   onDeleteKey: (keyId: string) => void
 }
 
-// "gemini-3-flash"(비-preview 이름)는 아직 API에 존재하지 않아 404가 나므로 반드시
-// "gemini-3-flash-preview"를 써야 한다(2026-07-05 확인, DefaultModelOrder.MODELS 참고).
 // 2026-07-23: gemini-3.5-flash-lite, gemini-3.6-flash 추가(둘 다 무료 티어 제공 확인).
+// 2026-11-13: gemini-4-hydrogen, gemini-3.8-flash 추가(공식 가격 문서에서 무료 티어 확인). 실제 API에서 404가
+// 나는 gemini-3-flash-preview·gemini-3.1-pro와 지원 종료 예정인 gemini-2.5-flash 제거, 유료 모델은 Gemini 4
+// Carbon/Argon으로 교체(DefaultModelOrder.MODELS 참고).
 // "자동"을 고르면 서버가 modelOrder(아래 드래그 리스트로 커스텀 가능, 기본값은
 // DefaultModelOrder.MODELS)를 순서대로(키 로테이션을 모델마다 전부 소진한 뒤) 시도한다.
 // 특정 모델을 고르면 그 모델만 시도하고 실패하면 끝(Pro 계열은 자동 목록에 없으므로 직접
 // 선택해야 사용된다 - 그래서 아래 드래그 리스트에는 등장하지 않는다).
 const modelOptions: BadgeSelectOption[] = [
   { value: '', label: '자동 (무료 모델 순서대로 시도)' },
+  { value: 'gemini-4-hydrogen', label: 'Gemini 4 Hydrogen', badge: { text: '무료', tone: 'free' } },
+  { value: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', badge: { text: '무료', tone: 'free' } },
   { value: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', badge: { text: '무료', tone: 'free' } },
   { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite', badge: { text: '무료', tone: 'free' } },
   { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', badge: { text: '무료', tone: 'free' } },
   { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', badge: { text: '무료', tone: 'free' } },
-  { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview', badge: { text: '무료', tone: 'free' } },
-  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', badge: { text: '무료', tone: 'free' } },
   { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', badge: { text: '무료', tone: 'free' } },
-  { value: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro', badge: { text: '유료', tone: 'paid' } },
+  { value: 'gemini-4-carbon', label: 'Gemini 4 Carbon', badge: { text: '유료', tone: 'paid' } },
+  { value: 'gemini-4-argon', label: 'Gemini 4 Argon', badge: { text: '유료', tone: 'paid' } },
   { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', badge: { text: '유료', tone: 'paid' } },
 ]
 

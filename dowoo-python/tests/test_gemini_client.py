@@ -437,3 +437,17 @@ async def test_multi_chunk_translation_round_robins_key_after_each_success_to_sp
         "event": "done",
         "data": {"translatedText": "translated-by-key-a\ntranslated-by-key-b"},
     }
+
+
+def test_thinking_level_for_model():
+    from app.translate.gemini_client import _thinking_level_for
+    # 미설정: 무거운 기본값 모델은 low, 기본이 가벼운 모델은 아무것도 안 보냄
+    assert _thinking_level_for("gemini-4-hydrogen", None) == "low"
+    assert _thinking_level_for("gemini-3.8-flash", None) == "low"
+    assert _thinking_level_for("gemini-3.5-flash-lite", None) is None
+    # 예산 0(minimal): 지원 모델은 그대로, 미지원 모델은 low로 올림
+    assert _thinking_level_for("gemini-3.6-flash", 0) == "minimal"
+    assert _thinking_level_for("gemini-4-hydrogen", 0) == "low"
+    assert _thinking_level_for("gemini-3.8-flash", 0) == "low"
+    # 그 외 단계는 그대로
+    assert _thinking_level_for("gemini-4-hydrogen", -1) == "high"
