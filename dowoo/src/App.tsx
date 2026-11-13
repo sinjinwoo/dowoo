@@ -206,6 +206,7 @@ function App() {
     setTranslationError(null)
 
     let accumulated = ''
+    let completed = false
     try {
       const finalText = await translateStream({
         novelId,
@@ -217,6 +218,7 @@ function App() {
         },
         onProgress: setStreamingProgress,
       })
+      completed = true
       setActiveChapter((prev) => (prev && prev.id === chapterId ? { ...prev, translatedText: finalText } : prev))
     } catch (error) {
       if (!(error instanceof TranslationAbortedError)) {
@@ -226,8 +228,19 @@ function App() {
         })
       }
     } finally {
-      setTranslationStatus('idle')
-      abortControllerRef.current = null
+      // 그 사이 새 번역이 시작됐다면(다른 챕터로 이동 후 자동 번역 등) 그 번역의 상태를 건드리지 않는다.
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null
+        setTranslationStatus('idle')
+        // 끊긴 스트림의 줄을 메모리(streamingText)에 남겨두면, 이 챕터로 돌아왔을 때 서버에는 저장되지
+        // 않은 번역이 화면에 보였다가 자동 번역이 시작되며 사라진다. 스트리밍 상태를 비워 화면이 항상
+        // 서버에서 받은 챕터 데이터를 따르게 하고, 같은 챕터에 머무는 경우(중지 버튼)만 받은 줄을 반영한다.
+        setStreamingChapterId(null)
+        setStreamingText('')
+      }
+      if (!completed && accumulated) {
+        setActiveChapter((prev) => (prev && prev.id === chapterId ? { ...prev, translatedText: accumulated } : prev))
+      }
     }
   }
 
@@ -329,7 +342,8 @@ function App() {
       const index = detail.chapters.findIndex((c) => c.id === chapter.id)
       setCurrentChapterIndex(index >= 0 ? index : currentChapterIndex)
       setActiveChapter(chapter)
-      void handleTranslate(activeNovelDetail.id, chapter.id)
+      // 서버가 이미 저장된 챕터를 돌려준 경우(createOrGetCached) 번역이 있으면 다시 번역하지 않는다.
+      if (!chapter.translatedText) void handleTranslate(activeNovelDetail.id, chapter.id)
     } catch (error) {
       if (isSpeculativeNext) {
         setTranslationError({ type: 'boundary', message: '다음 편이 없습니다.' })

@@ -40,6 +40,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -59,6 +60,10 @@ public class TranslateService {
     // 아주 길면 Gemini가 첫 줄을 스트리밍하기 전까지 "생각"만 하는 구간(하트비트 없음)이 몇 분씩
     // 걸릴 수 있어 넉넉하게 잡는다(docs/troubleshooting/18 참고).
     private static final Duration IDLE_TIMEOUT = Duration.ofSeconds(300);
+    // 브라우저 연결 끊김 감지용 하트비트 간격. 서블릿은 실제로 무언가를 써봐야 클라이언트가 떠난 걸
+    // 알 수 있는데, 모델이 첫 줄을 내기 전(수십 초~수 분)에는 보낼 게 없어 끊김을 못 알아채고
+    // Gemini 호출이 계속 돌았다. 주기적으로 SSE 주석을 보내 몇 초 안에 끊김을 감지하고 즉시 중단한다.
+    private static final long HEARTBEAT_SECONDS = 2;
 
     private final ChapterRepository chapterRepository;
     private final NovelRepository novelRepository;
@@ -70,6 +75,10 @@ public class TranslateService {
     private final JsonMapper objectMapper;
     private final String aiApiBaseUrl;
     private final String internalToken;
+
+    // 챕터별로 진행 중인 번역. 같은 챕터에 새 요청이 오면(새로고침/재시도) 이전 번역을 즉시 끊고
+    // 새 요청이 이어받는다 - 끊긴 이전 번역은 저장하지 않아 새 번역 결과를 덮어쓰지 못한다.
+    private final Map<UUID, ActiveTranslation> activeTranslations = new ConcurrentHashMap<>();
 
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final ScheduledExecutorService watchdogScheduler = Executors.newSingleThreadScheduledExecutor();
@@ -142,7 +151,18 @@ public class TranslateService {
         requestBody.put("originalText", chapter.getOriginalText());
 
         SseEmitter emitter = new SseEmitter(0L);
-        executor.submit(() -> streamFromAiApi(emitter, requestBody, novelId, chapterId));
+        ActiveTranslation job = new ActiveTranslation();
+        ActiveTranslation previous = activeTranslations.put(chapterId, job);
+        if (previous != null) {
+            previous.supersede();
+        }
+        executor.submit(() -> {
+            try {
+                streamFromAiApi(emitter, requestBody, novelId, chapterId, job);
+            } finally {
+                activeTranslations.remove(chapterId, job);
+            }
+        });
         return emitter;
     }
 
@@ -159,7 +179,8 @@ public class TranslateService {
         return promptRepository.findByUserIdAndDefaultPromptTrue(userId).orElse(null);
     }
 
-    private void streamFromAiApi(SseEmitter emitter, Map<String, Object> requestBody, UUID novelId, UUID chapterId) {
+    private void streamFromAiApi(
+            SseEmitter emitter, Map<String, Object> requestBody, UUID novelId, UUID chapterId, ActiveTranslation job) {
         try {
             String json = objectMapper.writeValueAsString(requestBody);
             HttpRequest request = HttpRequest.newBuilder()
@@ -171,6 +192,11 @@ public class TranslateService {
 
             HttpResponse<java.io.InputStream> response =
                     httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            if (!job.attach(response.body())) {
+                // 응답을 기다리는 사이 같은 챕터에 새 요청이 와서 이미 밀려난 경우.
+                emitter.complete();
+                return;
+            }
 
             if (response.statusCode() != 200) {
                 sendError(emitter, "AI_API_UNAVAILABLE", "AI API 응답 오류: " + response.statusCode());
@@ -178,7 +204,7 @@ public class TranslateService {
                 return;
             }
 
-            relaySse(emitter, response, novelId, chapterId);
+            relaySse(emitter, response, novelId, chapterId, job);
         } catch (Exception e) {
             sendError(emitter, "AI_API_UNAVAILABLE", "번역 중 오류가 발생했습니다: " + e.getMessage());
             try {
@@ -196,8 +222,8 @@ public class TranslateService {
      * 대신 "마지막으로 데이터를 받은 이후 얼마나 지났는지"를 워치독으로 감시하다가, idleTimeout을
      * 넘기면 응답 스트림을 강제로 닫아 readLine()을 깨우고 TRANSLATE_TIMEOUT 에러로 마무리한다.
      */
-    private void relaySse(SseEmitter emitter, HttpResponse<java.io.InputStream> response, UUID novelId, UUID chapterId)
-            throws IOException {
+    private void relaySse(SseEmitter emitter, HttpResponse<java.io.InputStream> response, UUID novelId, UUID chapterId,
+            ActiveTranslation job) throws IOException {
         AtomicLong lastActivityNanos = new AtomicLong(System.nanoTime());
         AtomicBoolean timedOut = new AtomicBoolean(false);
         // 클라이언트가 "중지"를 누르거나 idle 타임아웃/네트워크 오류로 스트림이 done 이벤트 없이 끊겨도,
@@ -218,8 +244,18 @@ public class TranslateService {
             if (System.nanoTime() - lastActivityNanos.get() > IDLE_TIMEOUT.toNanos()) {
                 timedOut.set(true);
                 closeQuietly(response.body());
+                return;
             }
-        }, 5, 5, TimeUnit.SECONDS);
+            // 단일 스레드 스케줄러가 느린 클라이언트 쓰기에 묶이지 않도록 전송은 가상 스레드에서 한다.
+            executor.submit(() -> {
+                try {
+                    emitter.send(SseEmitter.event().comment("ping"));
+                } catch (IOException | IllegalStateException e) {
+                    // 브라우저가 떠남 - AI API 응답을 닫아 readLine()을 깨우고 Gemini 호출까지 중단시킨다.
+                    closeQuietly(response.body());
+                }
+            });
+        }, HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS);
 
         // BufferedReader를 try-with-resources로 감싸면 done/error 분기의 return이 암묵적으로
         // reader.close()를 트리거하는데, 이때 발생하는 IOException(예: 원격이 이미 커넥션을 정리해
@@ -245,11 +281,13 @@ public class TranslateService {
                     if ("line".equals(eventName)) {
                         collectLine(translatedLines, dataJson);
                     } else if ("done".equals(eventName)) {
-                        persistTranslation(novelId, chapterId, dataJson);
+                        if (!job.isSuperseded()) {
+                            persistTranslation(novelId, chapterId, dataJson);
+                        }
                         emitter.complete();
                         return;
                     } else if ("error".equals(eventName)) {
-                        persistPartialTranslation(novelId, chapterId, translatedLines);
+                        persistPartialTranslation(novelId, chapterId, translatedLines, job);
                         emitter.complete();
                         return;
                     }
@@ -258,7 +296,12 @@ public class TranslateService {
                 }
             }
         } catch (IOException e) {
-            persistPartialTranslation(novelId, chapterId, translatedLines);
+            persistPartialTranslation(novelId, chapterId, translatedLines, job);
+            if (job.isSuperseded()) {
+                // 같은 챕터의 새 요청에 밀려난 경우 - 오류가 아니라 정상적인 교체라 조용히 끝낸다.
+                emitter.complete();
+                return;
+            }
             if (timedOut.get()) {
                 sendError(emitter, "TRANSLATE_TIMEOUT", "번역 응답이 지연되어 중단되었습니다. 잠시 후 다시 시도해주세요.");
                 emitter.complete();
@@ -272,7 +315,7 @@ public class TranslateService {
             } catch (IOException ignored) {
             }
         }
-        persistPartialTranslation(novelId, chapterId, translatedLines);
+        persistPartialTranslation(novelId, chapterId, translatedLines, job);
         emitter.complete();
     }
 
@@ -290,8 +333,9 @@ public class TranslateService {
         }
     }
 
-    private void persistPartialTranslation(UUID novelId, UUID chapterId, List<String> translatedLines) {
-        if (translatedLines.isEmpty()) {
+    private void persistPartialTranslation(
+            UUID novelId, UUID chapterId, List<String> translatedLines, ActiveTranslation job) {
+        if (translatedLines.isEmpty() || job.isSuperseded()) {
             return;
         }
         saveTranslatedText(novelId, chapterId, String.join("\n", translatedLines));
@@ -328,6 +372,40 @@ public class TranslateService {
         } catch (IOException | IllegalStateException ignored) {
             // IllegalStateException: 프론트 연결 끊김으로 emitter가 onError 콜백을 통해 이미
             // 완료 처리된 뒤 호출된 경우 - send() 자체가 무의미하므로 조용히 무시한다.
+        }
+    }
+
+    /** 챕터 하나에 대해 진행 중인 번역 - 새 요청에 밀려나면(supersede) AI API 응답을 닫아 즉시 중단시킨다. */
+    private static final class ActiveTranslation {
+        private final AtomicBoolean superseded = new AtomicBoolean(false);
+        private volatile Closeable upstream;
+
+        void supersede() {
+            superseded.set(true);
+            Closeable current = upstream;
+            if (current != null) {
+                try {
+                    current.close();
+                } catch (IOException ignored) {
+                }
+            }
+        }
+
+        /** AI API 응답 스트림을 연결한다. 이미 밀려난 상태면 바로 닫고 false를 반환한다. */
+        boolean attach(Closeable body) {
+            upstream = body;
+            if (superseded.get()) {
+                try {
+                    body.close();
+                } catch (IOException ignored) {
+                }
+                return false;
+            }
+            return true;
+        }
+
+        boolean isSuperseded() {
+            return superseded.get();
         }
     }
 }
