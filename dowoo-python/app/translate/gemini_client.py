@@ -1,9 +1,14 @@
 import asyncio
+import logging
 import random
 import re
+import time
 from typing import AsyncIterator, Optional
 
 from google import genai
+
+# uvicorn이 이미 핸들러를 붙여둔 로거를 그대로 써서 별도 로깅 설정 없이 docker logs에 INFO가 찍히게 한다.
+logger = logging.getLogger("uvicorn.error")
 
 ASCII_PRINTABLE_RE = re.compile(r"^[\x21-\x7e]+$")
 STATUS_RE = re.compile(r"\b(4\d{2}|5\d{2})\b")
@@ -202,6 +207,7 @@ async def _try_one_key(
                     failed_untranslated = True
 
             if failed_untranslated:
+                logger.info("translate: untranslated passthrough model=%s attempt=%d", model, attempt + 1)
                 if not is_last_attempt:
                     # 같은 (모델, 키)로 조용히 재시도 - 아직 아무 줄도 내보내지 않았다. 딜레이 없이
                     # 바로 재요청하면 RPM 한도에 걸릴 수 있어 재시도 전에 잠시 쉰다.
@@ -265,7 +271,7 @@ async def translate_stream(
     model_start_index = 0
     key_start_index = random.randrange(len(keys))
 
-    for chunk_text in chunks:
+    for chunk_number, chunk_text in enumerate(chunks, start=1):
         last_error: Optional[dict] = None
         chunk_succeeded = False
 
@@ -279,12 +285,20 @@ async def translate_stream(
                 key_index = (key_start_index + key_offset) % len(keys)
 
                 attempt_failed = None
+                attempt_started = time.monotonic()
+                first_line_logged = False
                 async for item in _try_one_key(
                     model, keys[key_index], resolved_prompt, chunk_text, thinking_budget
                 ):
                     if item["event"] == "_attempt_failed":
                         attempt_failed = item
                         break
+                    if not first_line_logged:
+                        first_line_logged = True
+                        logger.info(
+                            "translate: first line model=%s key#%d chunk=%d/%d after %.1fs",
+                            model, key_index, chunk_number, len(chunks), time.monotonic() - attempt_started,
+                        )
                     # _line - 도착하는 대로 바로 실제 line/progress 이벤트로 내보내 실시간
                     # 스트리밍을 유지한다(청크가 끝날 때까지 모아뒀다가 한 번에 내보내지 않음).
                     line = item["data"]
@@ -295,6 +309,11 @@ async def translate_stream(
                     yield {"event": "progress", "data": {"percent": percent}}
 
                 if attempt_failed is not None:
+                    logger.info(
+                        "translate: attempt failed model=%s key#%d chunk=%d/%d after %.1fs reason=%s code=%s",
+                        model, key_index, chunk_number, len(chunks), time.monotonic() - attempt_started,
+                        attempt_failed.get("reason", "-"), attempt_failed["data"].get("code"),
+                    )
                     last_error = attempt_failed["data"]
                     retryable = attempt_failed["retryable"]
                     if not retryable:
