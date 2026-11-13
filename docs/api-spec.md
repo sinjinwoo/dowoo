@@ -542,7 +542,7 @@
 | 필드명 | 타입 | 설명 | 필수 |
 | --- | --- | --- | --- |
 | apiKeys | String[] | 줄 단위로 입력된 키 목록, 배열 순서 = 로테이션 순서. 생략 시 기존 키 유지 | ❌ |
-| model | String | 예: `gemini-4-hydrogen`, `gemini-3.1-pro-preview` | ✅ |
+| model | String | 예: `gemini-4-hydrogen`, `gemini-4-carbon` | ✅ |
 | thinkingBudget | Integer | | ❌ |
 
 **🔥 ERROR**

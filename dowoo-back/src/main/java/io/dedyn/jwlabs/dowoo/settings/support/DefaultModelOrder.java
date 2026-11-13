@@ -11,18 +11,18 @@ import java.util.Set;
  * ApiKeySettingsService(사용자별 순서 저장/검증)와 TranslateService(실제 번역 시 사용)가 이 목록
  * 하나만 참조하게 해서, 예전처럼 두 곳(+프론트 주석)에 따로 하드코딩되어 순서가 드리프트하는 일을 막는다.
  *
- * "gemini-3-flash"(비-preview 이름)는 아직 API에 존재하지 않아 404가 나므로 반드시
- * "gemini-3-flash-preview"를 써야 한다(2026-07-05 확인). 유료 전용 모델(Pro 계열)은 여기 넣지 않는다 -
+ * 유료 전용 모델(Pro/Gemini 4 Carbon·Argon 등)은 여기 넣지 않는다 -
  * 사용자가 명시적으로 model을 지정했을 때만 쓰인다.
  * 2026-11-13: gemini-4-hydrogen(Gemini 4 중 유일하게 무료 티어 제공), gemini-3.8-flash 추가 - 공식 가격 문서
- * (aistudio.google.com/docs/pricing)에서 둘 다 Free Tier "Free of charge" 확인. 공식 모델 목록에 없는
- * gemini-3.5-flash(404)와 지원 종료 예정인 gemini-2.5-flash(2026-12-01부터 3.5-flash-lite로 라우팅)는 제거.
+ * (aistudio.google.com/docs/pricing)에서 둘 다 Free Tier "Free of charge" 확인. 실제 API 모델 목록(models.list)에
+ * 없어 404가 나는 gemini-3-flash-preview와 지원 종료 예정인 gemini-2.5-flash(2026-12-01부터 3.5-flash-lite로
+ * 라우팅)는 제거. gemini-3.5-flash는 문서 목록엔 없지만 API에는 존재해 유지한다(2026-11-13 확인).
  */
 public final class DefaultModelOrder {
 
     public static final List<String> MODELS = List.of(
-            "gemini-4-hydrogen", "gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite",
-            "gemini-3.6-flash", "gemini-3-flash-preview");
+            "gemini-4-hydrogen", "gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.5-flash",
+            "gemini-3.1-flash-lite", "gemini-3.6-flash");
 
     private static final Set<String> MODEL_SET = new HashSet<>(MODELS);
     private static final String DELIMITER = ",";

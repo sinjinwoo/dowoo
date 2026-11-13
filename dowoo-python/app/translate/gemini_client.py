@@ -51,6 +51,26 @@ def _budget_to_thinking_level(thinking_budget: int) -> str:
     return "high"
 
 
+# 공식 문서(aistudio.google.com/docs/thinking, 2026-11-13 확인) 기준 모델별 thinking 동작.
+# "minimal"을 지원하는 모델 - 여기 없는 모델(gemini-4-*, gemini-3.8-flash 등)에 minimal을 보내면 400이 난다.
+# 문서에 없는 모델도 400을 피하도록 보수적으로 low로 올린다(low는 문서상 모든 모델이 지원).
+MINIMAL_THINKING_MODELS = {"gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3-flash-preview"}
+# 기본 thinking이 이미 minimal/off라 값을 따로 보내지 않아도 빠른 모델.
+LIGHT_DEFAULT_THINKING_MODELS = {"gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite"}
+
+
+def _thinking_level_for(model: str, thinking_budget: Optional[int]) -> Optional[str]:
+    """사용자가 thinking 예산을 정하지 않았으면 번역용으로 "low"를 쓴다 - 지정하지 않으면 모델 기본값
+    (gemini-4-hydrogen은 high)으로 돌아 첫 줄까지 50초 넘게 걸렸다(low는 6~8초, 2026-11-13 실측).
+    기본값이 이미 minimal/off인 모델은 그대로 둔다. 모델이 지원하지 않는 minimal은 low로 올린다."""
+    if thinking_budget is None:
+        return None if model in LIGHT_DEFAULT_THINKING_MODELS else "low"
+    level = _budget_to_thinking_level(thinking_budget)
+    if level == "minimal" and model not in MINIMAL_THINKING_MODELS:
+        return "low"
+    return level
+
+
 def resolve_system_prompt(template: str, memo: str) -> str:
     return template.replace("{{memo}}", memo or "")
 
@@ -136,8 +156,9 @@ async def _try_one_key(
     버킷이라 보고 대기 없이 바로 요청한다."""
     client = genai.Client(api_key=api_key)
     generation_config: dict = {}
-    if thinking_budget is not None:
-        generation_config["thinking_level"] = _budget_to_thinking_level(thinking_budget)
+    thinking_level = _thinking_level_for(model, thinking_budget)
+    if thinking_level is not None:
+        generation_config["thinking_level"] = thinking_level
 
     for attempt in range(UNTRANSLATED_MAX_ATTEMPTS):
         is_last_attempt = attempt == UNTRANSLATED_MAX_ATTEMPTS - 1
