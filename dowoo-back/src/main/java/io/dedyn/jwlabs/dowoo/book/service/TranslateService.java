@@ -40,7 +40,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -190,8 +193,23 @@ public class TranslateService {
                     .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
                     .build();
 
-            HttpResponse<java.io.InputStream> response =
-                    httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            // send() 대신 sendAsync()로 보내 응답 헤더를 기다리는 동안에도 새 요청이 이 호출을 취소할 수 있게 한다.
+            CompletableFuture<HttpResponse<java.io.InputStream>> pending =
+                    httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofInputStream());
+            if (!job.attachPending(pending)) {
+                emitter.complete();
+                return;
+            }
+            HttpResponse<java.io.InputStream> response;
+            try {
+                response = pending.get();
+            } catch (CancellationException e) {
+                // 헤더를 기다리는 사이 같은 챕터의 새 요청에 밀려나 취소된 경우.
+                emitter.complete();
+                return;
+            } catch (ExecutionException e) {
+                throw e.getCause() instanceof Exception cause ? cause : e;
+            }
             if (!job.attach(response.body())) {
                 // 응답을 기다리는 사이 같은 챕터에 새 요청이 와서 이미 밀려난 경우.
                 emitter.complete();
@@ -379,9 +397,14 @@ public class TranslateService {
     private static final class ActiveTranslation {
         private final AtomicBoolean superseded = new AtomicBoolean(false);
         private volatile Closeable upstream;
+        private volatile CompletableFuture<?> pendingRequest;
 
         void supersede() {
             superseded.set(true);
+            CompletableFuture<?> pending = pendingRequest;
+            if (pending != null) {
+                pending.cancel(true);
+            }
             Closeable current = upstream;
             if (current != null) {
                 try {
@@ -389,6 +412,16 @@ public class TranslateService {
                 } catch (IOException ignored) {
                 }
             }
+        }
+
+        /** 응답 헤더를 기다리는 요청을 연결한다. 이미 밀려난 상태면 바로 취소하고 false를 반환한다. */
+        boolean attachPending(CompletableFuture<?> pending) {
+            pendingRequest = pending;
+            if (superseded.get()) {
+                pending.cancel(true);
+                return false;
+            }
+            return true;
         }
 
         /** AI API 응답 스트림을 연결한다. 이미 밀려난 상태면 바로 닫고 false를 반환한다. */

@@ -237,9 +237,10 @@ function App() {
         // 서버에서 받은 챕터 데이터를 따르게 하고, 같은 챕터에 머무는 경우(중지 버튼)만 받은 줄을 반영한다.
         setStreamingChapterId(null)
         setStreamingText('')
-      }
-      if (!completed && accumulated) {
-        setActiveChapter((prev) => (prev && prev.id === chapterId ? { ...prev, translatedText: accumulated } : prev))
+        // 새 요청에 밀려난 이전 요청은 여기 들어오지 못하므로, 자기가 받은 줄로 화면을 덮어쓰지 않는다.
+        if (!completed && accumulated) {
+          setActiveChapter((prev) => (prev && prev.id === chapterId ? { ...prev, translatedText: accumulated } : prev))
+        }
       }
     }
   }
